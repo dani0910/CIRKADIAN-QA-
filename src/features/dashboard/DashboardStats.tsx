@@ -12,6 +12,14 @@ interface DashboardStatsProps {
 export default function DashboardStats({ projects, testCases, selectedProjectId }: DashboardStatsProps) {
   const [activeTab, setActiveTab] = useState<'passfail' | 'refinement' | 'policy'>('passfail')
 
+  const metadataMap: Record<string, { period: string; testers: string; developers: string }> = {
+    'proj-1': { period: '2026.05.01 ~ 진행 중', testers: '이다은, 이다연', developers: '김개발, 박개발' },
+    'proj-2': { period: '2026.04.15 ~ 진행 중', testers: '이다연', developers: '최개발' },
+    'proj-3': { period: '2026.03.10 ~ 진행 중', testers: '이다은', developers: '정개발, 윤개발' },
+  }
+
+  const currentMetadata = metadataMap[selectedProjectId] || { period: '2026.05.01 ~ 진행 중', testers: '이다은, 이다연', developers: '김개발, 박개발' }
+
   // Filter test cases based on selection
   const filteredCases = selectedProjectId === 'all'
     ? testCases
@@ -71,17 +79,17 @@ export default function DashboardStats({ projects, testCases, selectedProjectId 
           <div className="flex flex-wrap items-center gap-x-6 gap-y-1.5 text-xs text-text-muted font-medium">
             <div>
               <span className="text-zinc-500 mr-1.5">프로젝트 기간</span>
-              <span className="text-zinc-300">2026.05.01 ~ 2026.06.09</span>
+              <span className="text-zinc-300">{currentMetadata.period}</span>
             </div>
             <div className="w-px h-3 bg-zinc-800 hidden sm:block" />
             <div>
               <span className="text-zinc-500 mr-1.5">담당 QA</span>
-              <span className="text-zinc-300">이다은, 이다연</span>
+              <span className="text-zinc-300">{currentMetadata.testers}</span>
             </div>
             <div className="w-px h-3 bg-zinc-800 hidden sm:block" />
             <div>
               <span className="text-zinc-500 mr-1.5">개발 담당</span>
-              <span className="text-zinc-300">김개발, 박개발</span>
+              <span className="text-zinc-300">{currentMetadata.developers}</span>
             </div>
           </div>
         </div>

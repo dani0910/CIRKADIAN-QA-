@@ -117,20 +117,37 @@ const generateMockTestCases = (projectId: string): TestCase[] => {
   ]
 
   // Add dummy fill testcases to hit exact numbers for stats (362 PASS, 86 FAIL, 64 BLOCK, 130 UNTESTED)
-  // PASS: 5 already in active list (tc-scan-001, tc-scan-002, tc-scan-003) -> Add 359
-  for (let i = 0; i < 359; i++) {
+  let passMax = 359
+  let failMax = 83
+  let blockMax = 64
+  let untestedMax = 129
+
+  if (projectId === 'proj-2') {
+    passMax = 237
+    failMax = 39
+    blockMax = 30
+    untestedMax = 79
+  } else if (projectId === 'proj-3') {
+    passMax = 177
+    failMax = 12
+    blockMax = 10
+    untestedMax = 44
+  }
+
+  // PASS: 3 already in active list (tc-scan-001, tc-scan-002, tc-scan-003) -> Add passMax
+  for (let i = 0; i < passMax; i++) {
     tcs.push({ id: `tc-pass-fill-${i}`, project_id: 'proj-1', title: `DUMMY-PASS-${i}`, status: 'PASS', created_at: new Date().toISOString() })
   }
-  // FAIL: 3 already in active list (tc-scan-004, tc-switch-001, tc-switch-002) -> Add 83
-  for (let i = 0; i < 83; i++) {
+  // FAIL: 3 already in active list (tc-scan-004, tc-switch-001, tc-switch-002) -> Add failMax
+  for (let i = 0; i < failMax; i++) {
     tcs.push({ id: `tc-fail-fill-${i}`, project_id: 'proj-1', title: `DUMMY-FAIL-${i}`, status: 'FAIL', created_at: new Date().toISOString() })
   }
-  // BLOCK: 0 in list -> Add 64
-  for (let i = 0; i < 64; i++) {
+  // BLOCK: 0 in list -> Add blockMax
+  for (let i = 0; i < blockMax; i++) {
     tcs.push({ id: `tc-block-fill-${i}`, project_id: 'proj-1', title: `DUMMY-BLOCK-${i}`, status: 'BLOCK', created_at: new Date().toISOString() })
   }
-  // UNTESTED: 1 in list (tc-switch-003) -> Add 129
-  for (let i = 0; i < 129; i++) {
+  // UNTESTED: 1 in list (tc-switch-003) -> Add untestedMax
+  for (let i = 0; i < untestedMax; i++) {
     tcs.push({ id: `tc-untested-fill-${i}`, project_id: 'proj-1', title: `DUMMY-UNTESTED-${i}`, status: 'UNTESTED', created_at: new Date().toISOString() })
   }
 
