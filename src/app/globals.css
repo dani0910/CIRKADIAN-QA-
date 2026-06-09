@@ -1,26 +1,47 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #0D0E12;
+  --foreground: #F4F4F5;
+  --accent-green: #00BA54;
+  --accent-red: #DE3A3A;
+  
+  --card-bg: #151821;
+  --border-color: #222631;
+  --text-muted: #8E93A6;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-accent-green: var(--accent-green);
+  --color-accent-red: var(--accent-red);
+  --color-card-bg: var(--card-bg);
+  --color-border-color: var(--border-color);
+  --color-text-muted: var(--text-muted);
+  
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
 body {
-  background: var(--background);
+  background-color: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+}
+
+/* Custom scrollbars for clean UI look */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0D0E12;
+}
+::-webkit-scrollbar-thumb {
+  background: #222631;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #00BA54;
 }
