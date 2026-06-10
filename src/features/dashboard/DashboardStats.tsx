@@ -7,9 +7,10 @@ interface DashboardStatsProps {
   projects: Project[]
   testCases: TestCase[]
   selectedProjectId: string
+  categoryGroups: CategoryGroup[]
 }
 
-export default function DashboardStats({ projects, testCases, selectedProjectId }: DashboardStatsProps) {
+export default function DashboardStats({ projects, testCases, selectedProjectId, categoryGroups }: DashboardStatsProps) {
   const [activeTab, setActiveTab] = useState<'passfail' | 'refinement' | 'policy'>('passfail')
 
   const metadataMap: Record<string, { period: string; testers: string; developers: string }> = {
@@ -52,15 +53,43 @@ export default function DashboardStats({ projects, testCases, selectedProjectId 
   const passOffset = 0
   const failOffset = -passStrokeDash
 
-  // Stacked Bar Chart mock values for categories
-  const barData = [
-    { label: '연결/BLE', pass: 85, fail: 15 },
-    { label: '알람', pass: 72, fail: 28 },
-    { label: '조명 제어', pass: 68, fail: 32 },
-    { label: '권한', pass: 75, fail: 25 },
-    { label: '설정', pass: 81, fail: 19 },
-    { label: '기타', pass: 67, fail: 33 },
-  ]
+  // Stacked Bar Chart values dynamically calculated from categoryGroups and testCases
+  const barData = categoryGroups.length > 0
+    ? categoryGroups.map(group => {
+        const groupCases = filteredCases.filter(tc => tc.group_id === group.id)
+        const totalInGroup = groupCases.length
+        
+        const passInGroup = groupCases.filter(tc => tc.status === 'PASS').length
+        const failInGroup = groupCases.filter(tc => tc.status === 'FAIL').length
+        
+        const passPercent = totalInGroup > 0 ? Math.round((passInGroup / totalInGroup) * 100) : 0
+        const failPercent = totalInGroup > 0 ? Math.round((failInGroup / totalInGroup) * 100) : 0
+        
+        let label = group.title
+        if (label.includes('.')) {
+          const parts = label.split('.')
+          if (parts[0].match(/^\d+(-\d+)*(-[a-zA-Z])?$/) || parts[0].trim().length <= 6) {
+            label = parts.slice(1).join('.').trim()
+          }
+        }
+        if (label.length > 7) {
+          label = label.substring(0, 6) + '..'
+        }
+
+        return {
+          label,
+          pass: passPercent,
+          fail: failPercent
+        }
+      })
+    : [
+        { label: '연결/BLE', pass: 85, fail: 15 },
+        { label: '알람', pass: 72, fail: 28 },
+        { label: '조명 제어', pass: 68, fail: 32 },
+        { label: '권한', pass: 75, fail: 25 },
+        { label: '설정', pass: 81, fail: 19 },
+        { label: '기타', pass: 67, fail: 33 },
+      ]
 
   return (
     <div className="space-y-6">

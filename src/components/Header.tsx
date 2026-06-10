@@ -1,20 +1,29 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { createClient } from "@/utils/supabase/client";
 
 export default function Header() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const currentProject = searchParams.get("project");
   const [isOpen, setIsOpen] = useState(false);
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
 
-  const projects = [
-    { id: "proj-1", name: "Mellight App" },
-    { id: "proj-2", name: "Melatonin" },
-    { id: "proj-3", name: "관리자 웹" },
-  ];
+  useEffect(() => {
+    const supabase = createClient();
+    supabase
+      .from("projects")
+      .select("id, name")
+      .order("created_at", { ascending: true })
+      .then(({ data }) => {
+        if (data) {
+          setProjects(data);
+        }
+      });
+  }, []);
 
   const selectedProjectName =
     projects.find((p) => p.id === currentProject)?.name || "프로젝트 선택";

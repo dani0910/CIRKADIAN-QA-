@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@/utils/supabase/server'
 import DashboardStats from '@/features/dashboard/DashboardStats'
 import TestCaseList from '@/features/testcase/TestCaseList'
 import ProjectList from '@/features/project/ProjectList'
@@ -265,35 +265,37 @@ export default async function Home({
   const selectedProject = params.project
 
   let projects: Project[] = []
+  let categoryGroups: CategoryGroup[] = []
   let testCases: TestCase[] = []
   let tcDetails: TCDetail[] = []
   
   try {
+    const supabase = await createClient()
     const { data: dbProjects } = await supabase.from('projects').select('*')
-    if (dbProjects && dbProjects.length > 0) {
+    if (dbProjects) {
       projects = dbProjects as Project[]
-    } else {
-      projects = mockProjects
+    }
+
+    const { data: dbGroups } = await supabase
+      .from('category_groups')
+      .select('*')
+      .eq('project_id', selectedProject || '')
+      .order('created_at', { ascending: true })
+    if (dbGroups) {
+      categoryGroups = dbGroups as CategoryGroup[]
     }
 
     const { data: dbTestCases } = await supabase.from('test_cases').select('*')
-    if (dbTestCases && dbTestCases.length > 0) {
+    if (dbTestCases) {
       testCases = dbTestCases as TestCase[]
-    } else {
-      testCases = generateMockTestCases(selectedProject || 'proj-1')
     }
 
     const { data: dbDetails } = await supabase.from('tc_details').select('*')
-    if (dbDetails && dbDetails.length > 0) {
+    if (dbDetails) {
       tcDetails = dbDetails as TCDetail[]
-    } else {
-      tcDetails = mockTCDetails
     }
   } catch (err) {
-    console.error('Failed to load database records, displaying mock data', err)
-    projects = mockProjects
-    testCases = generateMockTestCases(selectedProject || 'proj-1')
-    tcDetails = mockTCDetails
+    console.error('Failed to load database records', err)
   }
 
   // Filter testcases if loaded from DB
@@ -323,7 +325,7 @@ export default async function Home({
           <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-accent-green font-mono border border-emerald-500/20">개발자 A</span>
           <span className="text-xs font-mono text-zinc-500">src/features/dashboard/</span>
         </div>
-        <DashboardStats projects={projects} testCases={testCases} selectedProjectId={selectedProject || 'proj-1'} />
+        <DashboardStats projects={projects} testCases={testCases} selectedProjectId={selectedProject || 'proj-1'} categoryGroups={categoryGroups} />
       </section>
 
       {/* Divider */}
@@ -335,7 +337,7 @@ export default async function Home({
           <span className="px-2 py-0.5 rounded text-[10px] bg-red-500/10 text-accent-red font-mono border border-red-500/20">개발자 B</span>
           <span className="text-xs font-mono text-zinc-500">src/features/testcase/</span>
         </div>
-        <TestCaseList categoryGroups={mockCategoryGroups} testCases={testCases} tcDetails={tcDetails} />
+        <TestCaseList projectId={selectedProject} categoryGroups={categoryGroups} testCases={testCases} tcDetails={tcDetails} />
       </section>
       
     </div>

@@ -3,22 +3,19 @@
 import React, { useState } from 'react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/Button'
-import { Card } from '@/components/ui/Card'
+import { createProject } from '@/app/actions'
 
 interface ProjectListProps {
   projects: Project[]
 }
 
-export default function ProjectList({ projects }: ProjectListProps) {
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [selectedStatus, setSelectedStatus] = useState('all')
-
-  // Project details matching screenshot specs
-  const projectDetails = [
-    {
-      id: 'proj-1',
-      title: 'Mellight App',
+// Helper to map DB projects to display assets
+const getProjectDisplayData = (project: Project) => {
+  const name = project.name
+  const id = project.id
+  
+  if (id === 'proj-1' || name === 'Mellight App') {
+    return {
       category: 'Mobile App',
       categoryColor: 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
       status: '진행 중',
@@ -31,10 +28,11 @@ export default function ProjectList({ projects }: ProjectListProps) {
           </svg>
         </div>
       )
-    },
-    {
-      id: 'proj-2',
-      title: 'Melatonin',
+    }
+  }
+  
+  if (id === 'proj-2' || name === 'Melatonin') {
+    return {
       category: 'Mobile App',
       categoryColor: 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
       status: '진행 중',
@@ -47,10 +45,11 @@ export default function ProjectList({ projects }: ProjectListProps) {
           </svg>
         </div>
       )
-    },
-    {
-      id: 'proj-3',
-      title: '관리자 웹',
+    }
+  }
+  
+  if (id === 'proj-3' || name === '관리자 웹') {
+    return {
       category: 'Web',
       categoryColor: 'bg-purple-500/10 text-purple-400 border border-purple-500/20',
       status: '진행 중',
@@ -65,12 +64,69 @@ export default function ProjectList({ projects }: ProjectListProps) {
         </div>
       )
     }
-  ]
+  }
 
-  // Filter project cards
-  const filteredProjects = projectDetails.filter(proj => {
-    const matchesSearch = proj.title.toLowerCase().includes(searchQuery.toLowerCase())
-    return matchesSearch
+  // Fallback for user-created dynamic database records
+  const isWeb = name.toLowerCase().includes('web') || name.includes('웹')
+  const formattedDate = project.created_at ? new Date(project.created_at).toLocaleDateString('ko-KR') : new Date().toLocaleDateString('ko-KR')
+  return {
+    category: isWeb ? 'Web' : 'App',
+    categoryColor: isWeb 
+      ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' 
+      : 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
+    status: '진행 중',
+    period: `${formattedDate} ~ 진행 중`,
+    testers: '이다연',
+    icon: (
+      <div className="w-12 h-12 rounded-xl bg-zinc-950 flex items-center justify-center border border-zinc-800 shrink-0">
+        <svg className="w-6 h-6 text-cyan-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+        </svg>
+      </div>
+    )
+  }
+}
+
+export default function ProjectList({ projects }: ProjectListProps) {
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [selectedStatus, setSelectedStatus] = useState('all')
+
+  // Modal form states
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false)
+  const [newProjectName, setNewProjectName] = useState('')
+  const [newProjectDesc, setNewProjectDesc] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [errorMsg, setErrorMsg] = useState('')
+
+  const handleAddProject = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newProjectName.trim()) return
+
+    setIsSubmitting(true)
+    setErrorMsg('')
+    try {
+      await createProject(newProjectName, newProjectDesc)
+      setNewProjectName('')
+      setNewProjectDesc('')
+      setIsAddModalOpen(false)
+    } catch (err: any) {
+      setErrorMsg(err.message || '프로젝트 추가 중 오류가 발생했습니다.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  // Filter project cards using dynamic DB list
+  const filteredProjects = projects.filter(proj => {
+    const matchesSearch = proj.name.toLowerCase().includes(searchQuery.toLowerCase())
+    
+    const displayData = getProjectDisplayData(proj)
+    const matchesStatus = selectedStatus === 'all' || 
+      (selectedStatus === 'ongoing' && displayData.status === '진행 중') || 
+      (selectedStatus === 'done' && displayData.status === '완료')
+      
+    return matchesSearch && matchesStatus
   })
 
   return (
@@ -84,14 +140,18 @@ export default function ProjectList({ projects }: ProjectListProps) {
         </div>
         <div className="flex items-center gap-4.5 self-start md:self-auto shrink-0 text-xs">
           <span className="text-zinc-500 font-medium flex items-center gap-1.5 font-mono">
-            마지막 업데이트 2026.06.09 10:30
+            마지막 업데이트 2026.06.10 12:30
             <button className="text-zinc-500 hover:text-zinc-300 cursor-pointer">
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 8H18.75" />
               </svg>
             </button>
           </span>
-          <Button variant="primary" className="font-bold shadow-lg shadow-accent-green/20">
+          <Button 
+            variant="primary" 
+            className="font-bold shadow-lg shadow-accent-green/20"
+            onClick={() => setIsAddModalOpen(true)}
+          >
             + 프로젝트 추가
           </Button>
         </div>
@@ -152,62 +212,166 @@ export default function ProjectList({ projects }: ProjectListProps) {
 
       </div>
 
-      {/* 3. Grid representation of cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {filteredProjects.map((proj) => {
-          return (
-            <Link
-              key={proj.id}
-              href={`/?project=${proj.id}`}
-              className="group block bg-[#151821]/40 border border-border-color rounded-2xl p-5 hover:border-zinc-700/80 hover:bg-[#151821]/70 transition-all duration-300 shadow-xl cursor-pointer"
-            >
-              <div className="space-y-4">
-                
-                {/* Logo line and status */}
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    {proj.icon}
-                    <div>
-                      <h3 className="font-bold text-base text-zinc-100 group-hover:text-white transition">
-                        {proj.title}
-                      </h3>
-                      <span className={`inline-block px-2 py-0.5 mt-1 rounded text-[9px] font-bold ${proj.categoryColor}`}>
-                        {proj.category}
-                      </span>
-                    </div>
-                  </div>
+      {/* 3. Representation of cards (Grid or List view) */}
+      {viewMode === 'grid' ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {filteredProjects.map((proj) => {
+            const display = getProjectDisplayData(proj)
+            return (
+              <Link
+                key={proj.id}
+                href={`/?project=${proj.id}`}
+                className="group block bg-[#151821]/40 border border-border-color rounded-2xl p-5 hover:border-zinc-700/80 hover:bg-[#151821]/70 transition-all duration-300 shadow-xl cursor-pointer"
+              >
+                <div className="space-y-4">
                   
-                  {/* Status badge & More menu */}
-                  <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#00BA54]/10 text-accent-green border border-[#00BA54]/20">
-                      {proj.status}
-                    </span>
-                    <div className="text-zinc-600 hover:text-zinc-400 p-1 cursor-pointer">
-                      <svg className="w-4.5 h-4.5" fill="currentColor" viewBox="0 0 20 20">
-                        <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
-                      </svg>
+                  {/* Logo line and status */}
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      {display.icon}
+                      <div>
+                        <h3 className="font-bold text-base text-zinc-100 group-hover:text-white transition">
+                          {proj.name}
+                        </h3>
+                        <span className={`inline-block px-2 py-0.5 mt-1 rounded text-[9px] font-bold ${display.categoryColor}`}>
+                          {display.category}
+                        </span>
+                      </div>
+                    </div>
+                    
+                    {/* Status badge & More menu */}
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#00BA54]/10 text-accent-green border border-[#00BA54]/20">
+                        {display.status}
+                      </span>
+                      <div className="text-zinc-600 hover:text-zinc-400 p-1 cursor-pointer">
+                        <svg className="w-4.5 h-4.5" fill="currentColor" viewBox="0 0 20 20">
+                          <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                        </svg>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Bottom line project info (period & qa lead) */}
-                <div className="pt-3 border-t border-border-color/60 flex items-center justify-between text-[11px] text-text-muted font-medium font-sans">
-                  <div>
-                    <span className="text-zinc-600 mr-1">프로젝트 기간</span>
-                    <span className="text-zinc-400">{proj.period}</span>
+                  {/* Bottom line project info (period & qa lead) */}
+                  <div className="pt-3 border-t border-border-color/60 flex items-center justify-between text-[11px] text-text-muted font-medium font-sans">
+                    <div>
+                      <span className="text-zinc-600 mr-1">프로젝트 기간</span>
+                      <span className="text-zinc-400">{display.period}</span>
+                    </div>
+                    <div className="w-px h-3 bg-zinc-800" />
+                    <div>
+                      <span className="text-zinc-600 mr-1">담당 QA</span>
+                      <span className="text-zinc-400">{display.testers}</span>
+                    </div>
                   </div>
-                  <div className="w-px h-3 bg-zinc-800" />
+
+                </div>
+              </Link>
+            )
+          })}
+        </div>
+      ) : (
+        <div className="border border-border-color rounded-2xl bg-card-bg/25 overflow-hidden divide-y divide-zinc-900">
+          {filteredProjects.map((proj) => {
+            const display = getProjectDisplayData(proj)
+            return (
+              <Link
+                key={proj.id}
+                href={`/?project=${proj.id}`}
+                className="flex items-center justify-between p-4.5 hover:bg-zinc-800/20 transition-all cursor-pointer"
+              >
+                <div className="flex items-center gap-4.5">
+                  {display.icon}
                   <div>
-                    <span className="text-zinc-600 mr-1">담당 QA</span>
-                    <span className="text-zinc-400">{proj.testers}</span>
+                    <h3 className="font-bold text-sm text-zinc-100">{proj.name}</h3>
+                    <span className={`inline-block px-1.5 py-0.2 rounded text-[8px] font-bold mt-1 ${display.categoryColor}`}>
+                      {display.category}
+                    </span>
                   </div>
                 </div>
+                <div className="flex items-center gap-6 text-[11px] text-zinc-500 font-sans font-medium">
+                  <div>
+                    <span className="text-zinc-600 mr-1.5">기간:</span>
+                    <span className="text-zinc-400">{display.period}</span>
+                  </div>
+                  <div>
+                    <span className="text-zinc-600 mr-1.5">담당:</span>
+                    <span className="text-zinc-400">{display.testers}</span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#00BA54]/10 text-accent-green border border-[#00BA54]/20 shrink-0">
+                    {display.status}
+                  </span>
+                </div>
+              </Link>
+            )
+          })}
+        </div>
+      )}
 
+      {/* 4. Project Add Modal */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md bg-[#11131c] border border-border-color rounded-2xl p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <h3 className="text-lg font-black text-white mb-2">새 프로젝트 추가</h3>
+            <p className="text-xs text-text-muted mb-5">QA 작업을 진행할 새로운 프로젝트를 등록하세요.</p>
+            
+            {errorMsg && (
+              <div className="bg-red-500/10 border border-red-500/20 text-[#DE3A3A] px-3.5 py-2.5 rounded-xl text-xs mb-4">
+                {errorMsg}
               </div>
-            </Link>
-          )
-        })}
-      </div>
+            )}
+            
+            <form onSubmit={handleAddProject} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">프로젝트명</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="예: Mellight App"
+                  value={newProjectName}
+                  onChange={(e) => setNewProjectName(e.target.value)}
+                  className="w-full bg-[#090A0D] border border-border-color rounded-xl px-3.5 py-2.5 text-xs text-zinc-200 outline-none focus:border-zinc-700"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">설명 (선택)</label>
+                <textarea
+                  rows={3}
+                  placeholder="프로젝트 상세 설명 입력"
+                  value={newProjectDesc}
+                  onChange={(e) => setNewProjectDesc(e.target.value)}
+                  className="w-full bg-[#090A0D] border border-border-color rounded-xl p-3 text-xs text-zinc-200 outline-none resize-none focus:border-zinc-700"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setIsAddModalOpen(false)
+                    setErrorMsg('')
+                  }}
+                  className="font-bold"
+                >
+                  취소
+                </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  disabled={isSubmitting}
+                  className="font-bold shadow-lg shadow-accent-green/20"
+                >
+                  {isSubmitting ? '추가 중...' : '프로젝트 생성'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
     </div>
   )

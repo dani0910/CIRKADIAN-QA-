@@ -1,33 +1,24 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { supabase } from '@/lib/supabase'
+import { createTestCase, createCategoryGroup, updateTestCaseResult, uploadTestCaseEvidence, addTestCaseComment } from '@/app/actions'
 
 interface TestCaseListProps {
+  projectId: string
   categoryGroups: CategoryGroup[]
   testCases: TestCase[]
-  tcDetails: (TCDetail & {
-    step_statuses?: string[]
-    category?: string
-    prerequisites?: string[]
-    actual_result?: string | null
-    app_version?: string
-    device?: string
-    testers?: string
-    execution_date?: string
-    comments?: {
-      author: string
-      role: string
-      text: string
-      date: string
-    }[]
-  })[]
+  tcDetails: TCDetail[]
 }
 
-export default function TestCaseList({ categoryGroups, testCases: initialTestCases, tcDetails }: TestCaseListProps) {
+export default function TestCaseList({ projectId, categoryGroups, testCases: initialTestCases, tcDetails }: TestCaseListProps) {
   const [testCases, setTestCases] = useState<TestCase[]>(initialTestCases)
+
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [activeUploadTcId, setActiveUploadTcId] = useState<string | null>(null)
+  const [isUploadingFile, setIsUploadingFile] = useState(false)
   
   // Expanded states for groups (Parent level) and test cases (Child level)
   // Initially expand group-a and group-b, and case tc-scan-004 to matches the screenshots perfectly.
@@ -44,7 +35,7 @@ export default function TestCaseList({ categoryGroups, testCases: initialTestCas
   const [commentsState, setCommentsState] = useState<Record<string, { author: string; role: string; text: string; date: string }[]>>(() => {
     const initial: Record<string, any> = {}
     tcDetails.forEach(detail => {
-      initial[detail.id] = detail.comments || []
+      initial[detail.id] = (detail.comments as any) || []
     })
     return initial
   })
@@ -52,12 +43,7 @@ export default function TestCaseList({ categoryGroups, testCases: initialTestCas
   const [imagesState, setImagesState] = useState<Record<string, string[]>>(() => {
     const initial: Record<string, string[]> = {}
     tcDetails.forEach(detail => {
-      initial[detail.id] = detail.evidence_urls.length > 0 
-        ? detail.evidence_urls 
-        : [
-            'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=600&q=80',
-            'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=600&q=80'
-          ]
+      initial[detail.id] = detail.evidence_urls || []
     })
     return initial
   })
@@ -71,13 +57,184 @@ export default function TestCaseList({ categoryGroups, testCases: initialTestCas
   })
 
   const [commentInputs, setCommentInputs] = useState<Record<string, string>>({})
+  const [commentAuthorInputs, setCommentAuthorInputs] = useState<Record<string, string>>({})
   const [uploadingId, setUploadingId] = useState<string | null>(null)
+  const [actualResultsState, setActualResultsState] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = {}
+    tcDetails.forEach(detail => {
+      initial[detail.id] = detail.actual_result || ''
+    })
+    return initial
+  })
+
+  const [metadataState, setMetadataState] = useState<Record<string, {
+    app_version: string
+    device: string
+    testers: string
+    execution_date: string
+  }>>(() => {
+    const initial: Record<string, any> = {}
+    tcDetails.forEach(detail => {
+      initial[detail.id] = {
+        app_version: detail.app_version || '',
+        device: detail.device || '',
+        testers: detail.testers || '',
+        execution_date: detail.execution_date || ''
+      }
+    })
+    return initial
+  })
+
+  // Sync props to state when initialTestCases or tcDetails changes
+  useEffect(() => {
+    setTestCases(initialTestCases)
+  }, [initialTestCases])
+
+  useEffect(() => {
+    setCommentsState(prev => {
+      const next = { ...prev }
+      tcDetails.forEach(detail => {
+        if (!next[detail.id]) {
+          next[detail.id] = (detail.comments as any) || []
+        }
+      })
+      return next
+    })
+    setImagesState(prev => {
+      const next = { ...prev }
+      tcDetails.forEach(detail => {
+        if (!next[detail.id]) {
+          next[detail.id] = detail.evidence_urls || []
+        }
+      })
+      return next
+    })
+    setActiveImageIndexes(prev => {
+      const next = { ...prev }
+      tcDetails.forEach(detail => {
+        if (next[detail.id] === undefined) {
+          next[detail.id] = 0
+        }
+      })
+      return next
+    })
+    setActualResultsState(prev => {
+      const next = { ...prev }
+      tcDetails.forEach(detail => {
+        if (next[detail.id] === undefined || next[detail.id] === '') {
+          next[detail.id] = detail.actual_result || ''
+        }
+      })
+      return next
+    })
+    setMetadataState(prev => {
+      const next = { ...prev }
+      tcDetails.forEach(detail => {
+        if (!next[detail.id] || (next[detail.id].app_version === '' && next[detail.id].device === '' && next[detail.id].testers === '' && next[detail.id].execution_date === '')) {
+          next[detail.id] = {
+            app_version: detail.app_version || '',
+            device: detail.device || '',
+            testers: detail.testers || '',
+            execution_date: detail.execution_date || ''
+          }
+        }
+      })
+      return next
+    })
+  }, [tcDetails])
 
   // Filter States
-  const [activeTab, setActiveTab] = useState<'all' | 'ios' | 'android' | 'web'>('all')
+  const [activeTab, setActiveTab] = useState<'all' | 'ios' | 'android'>('ios')
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
   const [selectedStatus, setSelectedStatus] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState<string>('')
+
+  // Modal states for adding TestCase
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false)
+  const [newTitle, setNewTitle] = useState('')
+  const [newGroupId, setNewGroupId] = useState(categoryGroups[0]?.id || '')
+  const [newTcCode, setNewTcCode] = useState('')
+  const [newTags, setNewTags] = useState('')
+  const [newTester, setNewTester] = useState('이다연')
+  const [newSteps, setNewSteps] = useState('')
+  const [newPrereqs, setNewPrereqs] = useState('')
+  const [newExpected, setNewExpected] = useState('')
+  const [isAdding, setIsAdding] = useState(false)
+  const [errorMsg, setErrorMsg] = useState('')
+
+  // Modal states for adding Category Group
+  const [isAddGroupModalOpen, setIsAddGroupModalOpen] = useState(false)
+  const [newGroupTitle, setNewGroupTitle] = useState('')
+  const [isAddingGroup, setIsAddingGroup] = useState(false)
+  const [groupErrorMsg, setGroupErrorMsg] = useState('')
+
+  useEffect(() => {
+    if (categoryGroups.length > 0) {
+      const exists = categoryGroups.some(g => g.id === newGroupId)
+      if (!exists) {
+        setNewGroupId(categoryGroups[0].id)
+      }
+    } else {
+      if (newGroupId !== '') {
+        setNewGroupId('')
+      }
+    }
+  }, [categoryGroups, newGroupId])
+
+  const handleAddCategoryGroup = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newGroupTitle.trim()) return
+
+    setIsAddingGroup(true)
+    setGroupErrorMsg('')
+    try {
+      await createCategoryGroup(projectId, newGroupTitle)
+      setNewGroupTitle('')
+      setIsAddGroupModalOpen(false)
+    } catch (err: any) {
+      setGroupErrorMsg(err.message || '대분류 추가 중 오류가 발생했습니다.')
+    } finally {
+      setIsAddingGroup(false)
+    }
+  }
+
+  const handleAddTestCase = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newTitle.trim()) return
+
+    setIsAdding(true)
+    setErrorMsg('')
+    try {
+      const parsedSteps = newSteps.split('\n').map(s => s.trim()).filter(Boolean)
+      const parsedPrereqs = newPrereqs.split('\n').map(p => p.trim()).filter(Boolean)
+      const parsedTags = newTags.split(',').map(t => t.trim()).filter(Boolean)
+
+      await createTestCase({
+        projectId,
+        title: newTitle,
+        groupId: newGroupId || undefined,
+        tcCode: newTcCode || undefined,
+        tags: parsedTags.length > 0 ? parsedTags : undefined,
+        tester: newTester || undefined,
+        steps: parsedSteps,
+        prerequisites: parsedPrereqs,
+        expectedResult: newExpected || undefined,
+      })
+
+      // Reset
+      setNewTitle('')
+      setNewTcCode('')
+      setNewTags('')
+      setNewSteps('')
+      setNewPrereqs('')
+      setNewExpected('')
+      setIsAddModalOpen(false)
+    } catch (err: any) {
+      setErrorMsg(err.message || '테스트 케이스 추가 중 오류가 발생했습니다.')
+    } finally {
+      setIsAdding(false)
+    }
+  }
 
   const toggleGroup = (groupId: string) => {
     setExpandedGroups(prev => ({ ...prev, [groupId]: !prev[groupId] }))
@@ -91,56 +248,112 @@ export default function TestCaseList({ categoryGroups, testCases: initialTestCas
     setTestCases(prev => prev.map(tc => tc.id === id ? { ...tc, status: newStatus } : tc))
     
     try {
-      const { error } = await supabase
-        .from('test_cases')
-        .update({ status: newStatus })
-        .eq('id', id)
-      
-      if (error) {
-        console.error('Failed to update status in Supabase:', error.message)
-      }
+      await updateTestCaseResult(id, { status: newStatus })
     } catch (err) {
-      console.error('Supabase connection error:', err)
+      console.error('Failed to update status in Supabase:', err)
     }
   }
 
-  const handleAddComment = (tcId: string) => {
-    const text = commentInputs[tcId]
-    if (!text || !text.trim()) return
+  const handleSaveActualResult = async (tcId: string) => {
+    const val = actualResultsState[tcId] || ''
+    try {
+      await updateTestCaseResult(tcId, { actualResult: val })
+      alert('실제 결과가 성공적으로 저장되었습니다.')
+    } catch (err) {
+      console.error('Failed to save actual result:', err)
+      alert('실제 결과 저장 중 오류가 발생했습니다.')
+    }
+  }
+
+  const updateMetadataField = (tcId: string, field: 'app_version' | 'device' | 'testers' | 'execution_date', value: string) => {
+    setMetadataState(prev => ({
+      ...prev,
+      [tcId]: {
+        ...(prev[tcId] || { app_version: '', device: '', testers: '', execution_date: '' }),
+        [field]: value
+      }
+    }))
+  }
+
+  const handleSaveMetadata = async (tcId: string) => {
+    const meta = metadataState[tcId] || { app_version: '', device: '', testers: '', execution_date: '' }
+    try {
+      await updateTestCaseResult(tcId, {
+        appVersion: meta.app_version || null,
+        device: meta.device || null,
+        testers: meta.testers || null,
+        executionDate: meta.execution_date || null
+      })
+      alert('환경 설정 메타데이터가 저장되었습니다.')
+    } catch (err) {
+      console.error('Failed to save metadata:', err)
+      alert('메타데이터 저장 중 오류가 발생했습니다.')
+    }
+  }
+
+  const handleAddComment = async (tcId: string) => {
+    const author = commentAuthorInputs[tcId] || ''
+    const text = commentInputs[tcId] || ''
+
+    if (!author.trim()) {
+      alert('닉네임을 입력해 주세요.')
+      return
+    }
+    if (!text.trim()) {
+      alert('댓글 내용을 입력해 주세요.')
+      return
+    }
 
     const newComment = {
-      author: '이다연',
-      role: 'QA Specialist',
-      text: text,
+      author: author.trim(),
+      role: 'Tester',
+      text: text.trim(),
       date: new Date().toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' }) + ' ' + new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
     }
 
-    setCommentsState(prev => ({
-      ...prev,
-      [tcId]: [...(prev[tcId] || []), newComment]
-    }))
-
-    setCommentInputs(prev => ({ ...prev, [tcId]: '' }))
+    try {
+      const nextComments = await addTestCaseComment(tcId, newComment)
+      setCommentsState(prev => ({
+        ...prev,
+        [tcId]: nextComments
+      }))
+      setCommentInputs(prev => ({ ...prev, [tcId]: '' }))
+    } catch (err) {
+      console.error('Failed to add comment:', err)
+      alert('댓글 등록 중 오류가 발생했습니다.')
+    }
   }
 
   const handleImageUpload = (tcId: string) => {
-    const nextImages = [
-      'https://images.unsplash.com/photo-1542744094-3a31f103e35f?auto=format&fit=crop&w=600&q=80',
-      'https://images.unsplash.com/photo-1507238691740-187a5b1d37b8?auto=format&fit=crop&w=600&q=80',
-      'https://images.unsplash.com/photo-1531403009284-440f080d1e12?auto=format&fit=crop&w=600&q=80'
-    ]
-    const currentList = imagesState[tcId] || []
-    const nextImg = nextImages[currentList.length % nextImages.length]
+    setActiveUploadTcId(tcId)
+    fileInputRef.current?.click()
+  }
 
-    setImagesState(prev => ({
-      ...prev,
-      [tcId]: [...currentList, nextImg]
-    }))
-    
-    setActiveImageIndexes(prev => ({
-      ...prev,
-      [tcId]: currentList.length
-    }))
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !activeUploadTcId) return
+
+    setIsUploadingFile(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const fileUrl = await uploadTestCaseEvidence(activeUploadTcId, formData)
+
+      // Update client state
+      const currentList = imagesState[activeUploadTcId] || []
+      const nextList = [...currentList, fileUrl]
+      setImagesState(prev => ({ ...prev, [activeUploadTcId]: nextList }))
+      setActiveImageIndexes(prev => ({ ...prev, [activeUploadTcId]: nextList.length - 1 }))
+    } catch (err) {
+      console.error('Failed to upload image:', err)
+      alert('이미지 업로드 중 오류가 발생했습니다.')
+    } finally {
+      setIsUploadingFile(false)
+      setActiveUploadTcId(null)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
   }
 
   // Filter Category groups
@@ -185,16 +398,31 @@ export default function TestCaseList({ categoryGroups, testCases: initialTestCas
       {/* Search and platform header filter controls */}
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold text-white tracking-tight">전체 테스트 케이스</h2>
-        <Button variant="primary" size="md" className="flex items-center gap-1.5 font-bold shadow-lg shadow-accent-green/20">
-          <span>+</span> 테스트 케이스 추가
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline" 
+            size="md" 
+            className="flex items-center gap-1.5 font-bold hover:border-accent-green hover:text-accent-green cursor-pointer"
+            onClick={() => setIsAddGroupModalOpen(true)}
+          >
+            <span>+</span> 대분류 추가
+          </Button>
+          <Button 
+            variant="primary" 
+            size="md" 
+            className="flex items-center gap-1.5 font-bold shadow-lg shadow-accent-green/20 cursor-pointer"
+            onClick={() => setIsAddModalOpen(true)}
+          >
+            <span>+</span> 테스트 케이스 추가
+          </Button>
+        </div>
       </div>
 
       <div className="space-y-3">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           
           <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-xl border border-border-color self-start">
-            {['all', 'ios', 'android', 'web'].map(tab => (
+            {['ios', 'android', 'all'].map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab as any)}
@@ -204,7 +432,7 @@ export default function TestCaseList({ categoryGroups, testCases: initialTestCas
                     : 'text-zinc-400 hover:text-zinc-200'
                 }`}
               >
-                {tab === 'all' ? '전체' : tab}
+                {tab === 'all' ? '전체보기' : tab === 'ios' ? 'iOS' : 'Android'}
               </button>
             ))}
           </div>
@@ -254,7 +482,16 @@ export default function TestCaseList({ categoryGroups, testCases: initialTestCas
 
       {/* Hierarchical Double Accordion List */}
       <div className="space-y-4">
-        {filteredGroups.map((group) => {
+        {filteredGroups.length === 0 ? (
+          <div className="border border-dashed border-border-color rounded-2xl p-10 text-center bg-card-bg/5 space-y-3">
+            <div className="text-zinc-600 text-3xl select-none">📂</div>
+            <h3 className="text-sm font-bold text-zinc-300">등록된 대분류가 없습니다</h3>
+            <p className="text-xs text-text-muted max-w-sm mx-auto leading-relaxed">
+              이 프로젝트에 등록된 테스트 케이스 대분류가 없습니다. 우측 상단의 <strong>'+ 대분류 추가'</strong> 버튼을 클릭하여 테스트 진행 영역을 분류해 보세요.
+            </p>
+          </div>
+        ) : (
+          filteredGroups.map((group) => {
           const isGroupExpanded = !!expandedGroups[group.id]
           
           // Get children testcases belonging to this parent category group
@@ -408,10 +645,24 @@ export default function TestCaseList({ categoryGroups, testCases: initialTestCas
                                   </div>
 
                                   <div className="border border-[#DE3A3A]/20 rounded-xl p-4.5 bg-[#DE3A3A]/5 space-y-2">
-                                    <div className="text-accent-red font-bold flex items-center gap-1.5">
-                                      <span>⚠</span> 실제 결과 (Actual)
+                                    <div className="flex items-center justify-between">
+                                      <div className="text-accent-red font-bold flex items-center gap-1.5">
+                                        <span>⚠</span> 실제 결과 (Actual)
+                                      </div>
+                                      <button
+                                        onClick={() => handleSaveActualResult(tc.id)}
+                                        className="px-2.5 py-1 bg-accent-red hover:bg-[#b82a2a] text-white font-bold rounded-lg transition duration-200 text-[10px] cursor-pointer"
+                                      >
+                                        저장
+                                      </button>
                                     </div>
-                                    <p className="text-zinc-300 leading-relaxed font-sans">{detail?.actual_result || '성공 완료'}</p>
+                                    <textarea
+                                      rows={2}
+                                      placeholder="실제 수행 결과를 입력하세요..."
+                                      value={actualResultsState[tc.id] || ''}
+                                      onChange={(e) => setActualResultsState({ ...actualResultsState, [tc.id]: e.target.value })}
+                                      className="w-full bg-[#11131c]/60 border border-[#DE3A3A]/20 rounded-lg p-2.5 text-zinc-300 placeholder-zinc-600 outline-none resize-none focus:border-[#DE3A3A]/50 focus:ring-1 focus:ring-[#DE3A3A]/50 transition-all text-xs leading-relaxed"
+                                    />
                                   </div>
                                 </div>
 
@@ -445,19 +696,29 @@ export default function TestCaseList({ categoryGroups, testCases: initialTestCas
                                     )}
                                   </div>
 
-                                  <div className="relative border border-border-color rounded-xl bg-zinc-950 p-2 flex flex-col">
+                                  <div className="border border-border-color rounded-xl bg-zinc-950 p-3.5 space-y-3 flex flex-col">
+                                    <div className="flex items-center gap-3">
+                                      <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider shrink-0 font-sans">WRITER NICKNAME</span>
+                                      <input
+                                        type="text"
+                                        placeholder="이름 (예: 이다연)"
+                                        value={commentAuthorInputs[tc.id] || ''}
+                                        onChange={(e) => setCommentAuthorInputs({ ...commentAuthorInputs, [tc.id]: e.target.value })}
+                                        className="bg-[#11131c]/60 border border-border-color rounded-lg px-2.5 py-1 text-zinc-200 text-xs outline-none focus:border-zinc-700 font-bold w-48 font-sans"
+                                      />
+                                    </div>
                                     <textarea
-                                      rows={3}
-                                      placeholder="의견을 입력하세요..."
+                                      rows={2}
+                                      placeholder="여기에 댓글 내용을 입력하세요..."
                                       value={commentInputs[tc.id] || ''}
                                       onChange={(e) => setCommentInputs({ ...commentInputs, [tc.id]: e.target.value })}
-                                      className="bg-transparent text-zinc-200 placeholder-zinc-600 outline-none text-xs p-2 resize-none"
+                                      className="bg-transparent text-zinc-200 placeholder-zinc-600 border border-border-color/30 rounded-lg p-2.5 outline-none text-xs resize-none focus:border-zinc-700/60 leading-relaxed"
                                     />
                                     <button
                                       onClick={() => handleAddComment(tc.id)}
                                       className="self-end px-4.5 py-1.5 bg-accent-green hover:bg-emerald-600 text-white font-bold rounded-lg transition shadow-lg shadow-emerald-500/10 cursor-pointer text-[11px]"
                                     >
-                                      POST
+                                      댓글 등록
                                     </button>
                                   </div>
                                 </div>
@@ -474,9 +735,16 @@ export default function TestCaseList({ categoryGroups, testCases: initialTestCas
                                     </span>
                                     <button 
                                       onClick={() => handleImageUpload(tc.id)}
-                                      className="text-zinc-400 hover:text-white flex items-center gap-1 text-[11px] font-bold cursor-pointer"
+                                      disabled={isUploadingFile && activeUploadTcId === tc.id}
+                                      className="text-zinc-400 hover:text-white flex items-center gap-1 text-[11px] font-bold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                      <span>📤</span> UPLOAD
+                                      {isUploadingFile && activeUploadTcId === tc.id ? (
+                                        <span>업로드 중...</span>
+                                      ) : (
+                                        <>
+                                          <span>📤</span> UPLOAD
+                                        </>
+                                      )}
                                     </button>
                                   </div>
 
@@ -488,7 +756,7 @@ export default function TestCaseList({ categoryGroups, testCases: initialTestCas
                                         className="w-full h-full object-cover transition duration-300 group-hover:scale-105"
                                       />
                                     ) : (
-                                      <span className="text-zinc-600 italic">No image</span>
+                                      <span className="text-zinc-500 font-medium text-xs">등록된 증적 이미지가 없습니다.</span>
                                     )}
                                   </div>
 
@@ -509,30 +777,64 @@ export default function TestCaseList({ categoryGroups, testCases: initialTestCas
                                     })}
                                     <button
                                       onClick={() => handleImageUpload(tc.id)}
-                                      className="w-14 h-14 rounded-lg border border-dashed border-zinc-800 hover:border-zinc-600 flex items-center justify-center text-zinc-500 font-bold shrink-0 cursor-pointer"
+                                      disabled={isUploadingFile && activeUploadTcId === tc.id}
+                                      className="w-14 h-14 rounded-lg border border-dashed border-zinc-800 hover:border-zinc-600 flex items-center justify-center text-zinc-500 font-bold shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                      +
+                                      {isUploadingFile && activeUploadTcId === tc.id ? '...' : '+'}
                                     </button>
                                   </div>
                                 </div>
 
                                 <div className="border border-border-color rounded-xl overflow-hidden bg-[#090A0D]/50 p-4 space-y-3.5">
+                                  <div className="flex items-center justify-between border-b border-zinc-900 pb-2">
+                                    <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider font-sans">ENVIRONMENT METADATA</span>
+                                    <button
+                                      onClick={() => handleSaveMetadata(tc.id)}
+                                      className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold rounded-lg transition duration-200 text-[10px] cursor-pointer border border-zinc-700/60"
+                                    >
+                                      저장
+                                    </button>
+                                  </div>
                                   <div className="grid grid-cols-2 gap-4 text-left">
                                     <div>
                                       <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">APP VERSION</div>
-                                      <div className="text-zinc-200 mt-1 font-mono font-bold">{detail?.app_version || 'v1.0.0'}</div>
+                                      <input
+                                        type="text"
+                                        value={metadataState[tc.id]?.app_version || ''}
+                                        onChange={(e) => updateMetadataField(tc.id, 'app_version', e.target.value)}
+                                        placeholder="입력..."
+                                        className="w-full bg-[#11131c]/60 border border-border-color rounded-lg px-2.5 py-1.5 text-zinc-200 mt-1 text-xs outline-none focus:border-zinc-700 font-mono font-bold"
+                                      />
                                     </div>
                                     <div>
                                       <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">DEVICE</div>
-                                      <div className="text-zinc-200 mt-1 font-bold">{detail?.device || 'iPhone 15 Pro'}</div>
+                                      <input
+                                        type="text"
+                                        value={metadataState[tc.id]?.device || ''}
+                                        onChange={(e) => updateMetadataField(tc.id, 'device', e.target.value)}
+                                        placeholder="입력..."
+                                        className="w-full bg-[#11131c]/60 border border-border-color rounded-lg px-2.5 py-1.5 text-zinc-200 mt-1 text-xs outline-none focus:border-zinc-700 font-bold"
+                                      />
                                     </div>
                                     <div>
                                       <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">TESTERS</div>
-                                      <div className="text-zinc-200 mt-1 font-bold">{detail?.testers || 'QA Engine'}</div>
+                                      <input
+                                        type="text"
+                                        value={metadataState[tc.id]?.testers || ''}
+                                        onChange={(e) => updateMetadataField(tc.id, 'testers', e.target.value)}
+                                        placeholder="입력..."
+                                        className="w-full bg-[#11131c]/60 border border-border-color rounded-lg px-2.5 py-1.5 text-zinc-200 mt-1 text-xs outline-none focus:border-zinc-700 font-bold"
+                                      />
                                     </div>
                                     <div>
                                       <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">EXECUTION DATE</div>
-                                      <div className="text-zinc-200 mt-1 font-mono font-bold">{detail?.execution_date || '2024.05.26 14:32'}</div>
+                                      <input
+                                        type="text"
+                                        value={metadataState[tc.id]?.execution_date || ''}
+                                        onChange={(e) => updateMetadataField(tc.id, 'execution_date', e.target.value)}
+                                        placeholder="입력..."
+                                        className="w-full bg-[#11131c]/60 border border-border-color rounded-lg px-2.5 py-1.5 text-zinc-200 mt-1 text-xs outline-none focus:border-zinc-700 font-mono font-bold"
+                                      />
                                     </div>
                                   </div>
                                 </div>
@@ -558,9 +860,208 @@ export default function TestCaseList({ categoryGroups, testCases: initialTestCas
 
             </div>
           )
-        })}
+        }))}
       </div>
 
+      {/* 4. Add TestCase Modal */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="w-full max-w-xl bg-[#11131c] border border-border-color rounded-2xl p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200 my-8">
+            <div className="flex items-center justify-between border-b border-border-color pb-3 mb-4">
+              <h3 className="text-lg font-black text-white">새 테스트 케이스 추가</h3>
+              <button 
+                onClick={() => setIsAddModalOpen(false)}
+                className="text-zinc-500 hover:text-zinc-300 text-sm cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+            
+            {errorMsg && (
+              <div className="bg-red-500/10 border border-red-500/20 text-[#DE3A3A] px-3.5 py-2.5 rounded-xl text-xs mb-4">
+                {errorMsg}
+              </div>
+            )}
+            
+            <form onSubmit={handleAddTestCase} className="space-y-4 text-left">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5 col-span-2">
+                  <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">테스트 항목명 (Title)</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="예: 다중 램프 동시 스캔 및 식별 검증"
+                    value={newTitle}
+                    onChange={(e) => setNewTitle(e.target.value)}
+                    className="w-full bg-[#090A0D] border border-border-color rounded-xl px-3.5 py-2.5 text-xs text-zinc-200 outline-none focus:border-zinc-700"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">대분류 (Category Group)</label>
+                  <select
+                    value={newGroupId}
+                    onChange={(e) => setNewGroupId(e.target.value)}
+                    className="w-full bg-[#090A0D] border border-border-color rounded-xl px-3 py-2.5 text-xs text-zinc-300 outline-none cursor-pointer focus:border-zinc-700"
+                  >
+                    {categoryGroups.length === 0 ? (
+                      <option value="">(대분류를 먼저 생성해 주세요)</option>
+                    ) : (
+                      categoryGroups.map(g => (
+                        <option key={g.id} value={g.id}>{g.title}</option>
+                      ))
+                    )}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">TC 코드 (E.g., INT-SCAN-005)</label>
+                  <input
+                    type="text"
+                    placeholder="예: INT-SCAN-005"
+                    value={newTcCode}
+                    onChange={(e) => setNewTcCode(e.target.value)}
+                    className="w-full bg-[#090A0D] border border-border-color rounded-xl px-3.5 py-2.5 text-xs text-zinc-200 outline-none focus:border-zinc-700 font-mono"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">태그 (쉼표구분)</label>
+                  <input
+                    type="text"
+                    placeholder="예: 페어링, UX 개선"
+                    value={newTags}
+                    onChange={(e) => setNewTags(e.target.value)}
+                    className="w-full bg-[#090A0D] border border-border-color rounded-xl px-3.5 py-2.5 text-xs text-zinc-200 outline-none focus:border-zinc-700"
+                  />
+                </div>
+
+
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">사전 조건 (라인구분)</label>
+                <textarea
+                  rows={2}
+                  placeholder="예: 두 대 이상의 스마트폰에 앱 설치 확인&#10;테스트 대상 기기 초기화 확인"
+                  value={newPrereqs}
+                  onChange={(e) => setNewPrereqs(e.target.value)}
+                  className="w-full bg-[#090A0D] border border-border-color rounded-xl p-3 text-xs text-zinc-200 outline-none resize-none focus:border-zinc-700"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">테스트 절차 (라인구분)</label>
+                <textarea
+                  rows={3}
+                  placeholder="예: 스마트폰 A에서 스캔 시작&#10;검색 목록 노출 확인&#10;스마트폰 B에서 연결 시도"
+                  value={newSteps}
+                  onChange={(e) => setNewSteps(e.target.value)}
+                  className="w-full bg-[#090A0D] border border-border-color rounded-xl p-3 text-xs text-zinc-200 outline-none resize-none focus:border-zinc-700"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">예상 결과</label>
+                <input
+                  type="text"
+                  placeholder="예: 선택한 램프와 즉시 통신 세션이 연결됩니다."
+                  value={newExpected}
+                  onChange={(e) => setNewExpected(e.target.value)}
+                  className="w-full bg-[#090A0D] border border-border-color rounded-xl px-3.5 py-2.5 text-xs text-zinc-200 outline-none focus:border-zinc-700"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-border-color mt-4">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setIsAddModalOpen(false)}
+                  className="font-bold"
+                >
+                  취소
+                </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  disabled={isAdding}
+                  className="font-bold shadow-lg shadow-accent-green/20"
+                >
+                  {isAdding ? '추가 중...' : '테스트 케이스 생성'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Add Category Group Modal */}
+      {isAddGroupModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md bg-[#11131c] border border-border-color rounded-2xl p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-border-color pb-3 mb-4">
+              <h3 className="text-lg font-black text-white">새 대분류 추가</h3>
+              <button 
+                onClick={() => setIsAddGroupModalOpen(false)}
+                className="text-zinc-500 hover:text-zinc-300 text-sm cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+            
+            {groupErrorMsg && (
+              <div className="bg-red-500/10 border border-red-500/20 text-[#DE3A3A] px-3.5 py-2.5 rounded-xl text-xs mb-4">
+                {groupErrorMsg}
+              </div>
+            )}
+            
+            <form onSubmit={handleAddCategoryGroup} className="space-y-4 text-left">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">대분류명 (Title)</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="예: 5-2-F. 신규 네트워크 및 BLE 테스트"
+                  value={newGroupTitle}
+                  onChange={(e) => setNewGroupTitle(e.target.value)}
+                  className="w-full bg-[#090A0D] border border-border-color rounded-xl px-3.5 py-2.5 text-xs text-zinc-200 outline-none focus:border-zinc-700"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-border-color mt-4">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setIsAddGroupModalOpen(false)}
+                  className="font-bold"
+                >
+                  취소
+                </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  disabled={isAddingGroup}
+                  className="font-bold shadow-lg shadow-accent-green/20"
+                >
+                  {isAddingGroup ? '추가 중...' : '대분류 생성'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        accept="image/*"
+        className="hidden"
+      />
     </div>
   )
 }
