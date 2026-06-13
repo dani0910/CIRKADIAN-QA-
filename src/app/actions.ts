@@ -121,6 +121,7 @@ export async function createCategoryGroup(projectId: string, title: string) {
 
 export async function updateTestCaseResult(tcId: string, params: {
   status?: 'PASS' | 'FAIL' | 'UNTESTED' | 'BLOCK'
+  tags?: string[] | null
   actualResult?: string | null
   evidenceUrls?: string[]
   appVersion?: string | null
@@ -130,13 +131,17 @@ export async function updateTestCaseResult(tcId: string, params: {
 }) {
   const supabase = await createClient()
 
-  if (params.status) {
+  if (params.status || params.tags !== undefined) {
+    const updates: any = {}
+    if (params.status) updates.status = params.status
+    if (params.tags !== undefined) updates.tags = params.tags
+
     const { error: tcError } = await supabase
       .from('test_cases')
-      .update({ status: params.status })
+      .update(updates)
       .eq('id', tcId)
     if (tcError) {
-      throw new Error(`Failed to update test case status: ${tcError.message}`)
+      throw new Error(`Failed to update test case: ${tcError.message}`)
     }
   }
 
@@ -238,8 +243,20 @@ export async function addTestCaseComment(tcId: string, comment: {
     throw new Error(`Failed to fetch test case details: ${fetchError.message}`)
   }
 
-  const currentComments = (detail?.comments as any[]) || []
-  const nextComments = [...currentComments, comment]
+  let nextComments: any;
+  const currentComments = detail?.comments;
+
+  if (Array.isArray(currentComments)) {
+    nextComments = [...currentComments, comment];
+  } else if (currentComments && typeof currentComments === 'object') {
+    const list = (currentComments as any).list || [];
+    nextComments = {
+      ...(currentComments as any),
+      list: [...list, comment]
+    };
+  } else {
+    nextComments = [comment];
+  }
 
   const { error: updateError } = await supabase
     .from('tc_details')
@@ -251,5 +268,54 @@ export async function addTestCaseComment(tcId: string, comment: {
   }
 
   revalidatePath('/')
-  return nextComments
+  return Array.isArray(nextComments) ? nextComments : nextComments.list;
+}
+
+export async function updateOpinionText(tcId: string, type: 'refinement' | 'policy', text: string) {
+  const supabase = await createClient()
+
+  const { data: detail, error: fetchError } = await supabase
+    .from('tc_details')
+    .select('comments')
+    .eq('id', tcId)
+    .single()
+
+  if (fetchError) {
+    throw new Error(`Failed to fetch test case details: ${fetchError.message}`)
+  }
+
+  let nextComments: any;
+  const currentComments = detail?.comments;
+
+  if (Array.isArray(currentComments)) {
+    nextComments = {
+      list: currentComments,
+      refinement_text: type === 'refinement' ? text : '',
+      policy_text: type === 'policy' ? text : ''
+    };
+  } else if (currentComments && typeof currentComments === 'object') {
+    nextComments = {
+      ...(currentComments as any),
+      refinement_text: type === 'refinement' ? text : ((currentComments as any).refinement_text || ''),
+      policy_text: type === 'policy' ? text : ((currentComments as any).policy_text || '')
+    };
+  } else {
+    nextComments = {
+      list: [],
+      refinement_text: type === 'refinement' ? text : '',
+      policy_text: type === 'policy' ? text : ''
+    };
+  }
+
+  const { error: updateError } = await supabase
+    .from('tc_details')
+    .update({ comments: nextComments })
+    .eq('id', tcId)
+
+  if (updateError) {
+    throw new Error(`Failed to save opinion text: ${updateError.message}`)
+  }
+
+  revalidatePath('/')
+  return nextComments;
 }

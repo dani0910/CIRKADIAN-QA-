@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { supabase } from '@/lib/supabase'
-import { createTestCase, createCategoryGroup, updateTestCaseResult, uploadTestCaseEvidence, addTestCaseComment } from '@/app/actions'
+import { createTestCase, createCategoryGroup, updateTestCaseResult, uploadTestCaseEvidence, addTestCaseComment, updateOpinionText } from '@/app/actions'
 
 interface TestCaseListProps {
   projectId: string
@@ -35,7 +35,28 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
   const [commentsState, setCommentsState] = useState<Record<string, { author: string; role: string; text: string; date: string }[]>>(() => {
     const initial: Record<string, any> = {}
     tcDetails.forEach(detail => {
-      initial[detail.id] = (detail.comments as any) || []
+      if (Array.isArray(detail.comments)) {
+        initial[detail.id] = detail.comments
+      } else if (detail.comments && typeof detail.comments === 'object') {
+        initial[detail.id] = (detail.comments as any).list || []
+      } else {
+        initial[detail.id] = []
+      }
+    })
+    return initial
+  })
+
+  const [opinionTextsState, setOpinionTextsState] = useState<Record<string, { refinement: string; policy: string }>>(() => {
+    const initial: Record<string, { refinement: string; policy: string }> = {}
+    tcDetails.forEach(detail => {
+      if (detail.comments && typeof detail.comments === 'object' && !Array.isArray(detail.comments)) {
+        initial[detail.id] = {
+          refinement: (detail.comments as any).refinement_text || '',
+          policy: (detail.comments as any).policy_text || ''
+        }
+      } else {
+        initial[detail.id] = { refinement: '', policy: '' }
+      }
     })
     return initial
   })
@@ -94,8 +115,26 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
     setCommentsState(prev => {
       const next = { ...prev }
       tcDetails.forEach(detail => {
-        if (!next[detail.id]) {
-          next[detail.id] = (detail.comments as any) || []
+        if (Array.isArray(detail.comments)) {
+          next[detail.id] = detail.comments
+        } else if (detail.comments && typeof detail.comments === 'object') {
+          next[detail.id] = (detail.comments as any).list || []
+        } else {
+          next[detail.id] = []
+        }
+      })
+      return next
+    })
+    setOpinionTextsState(prev => {
+      const next = { ...prev }
+      tcDetails.forEach(detail => {
+        if (detail.comments && typeof detail.comments === 'object' && !Array.isArray(detail.comments)) {
+          next[detail.id] = {
+            refinement: (detail.comments as any).refinement_text || '',
+            policy: (detail.comments as any).policy_text || ''
+          }
+        } else {
+          next[detail.id] = { refinement: '', policy: '' }
         }
       })
       return next
@@ -251,6 +290,48 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
       await updateTestCaseResult(id, { status: newStatus })
     } catch (err) {
       console.error('Failed to update status in Supabase:', err)
+    }
+  }
+
+  const toggleTag = async (id: string, tag: string) => {
+    const tc = testCases.find(t => t.id === id)
+    if (!tc) return
+
+    const currentTags = tc.tags || []
+    let nextTags: string[]
+    if (currentTags.includes(tag)) {
+      nextTags = currentTags.filter(t => t !== tag)
+    } else {
+      nextTags = [...currentTags, tag]
+    }
+
+    setTestCases(prev => prev.map(t => t.id === id ? { ...t, tags: nextTags } : t))
+
+    try {
+      await updateTestCaseResult(id, { tags: nextTags })
+    } catch (err) {
+      console.error('Failed to update tags in Supabase:', err)
+    }
+  }
+
+  const handleOpinionTextChange = (tcId: string, type: 'refinement' | 'policy', value: string) => {
+    setOpinionTextsState(prev => ({
+      ...prev,
+      [tcId]: {
+        ...(prev[tcId] || { refinement: '', policy: '' }),
+        [type]: value
+      }
+    }))
+  }
+
+  const handleSaveOpinion = async (tcId: string, type: 'refinement' | 'policy') => {
+    const val = opinionTextsState[tcId]?.[type] || ''
+    try {
+      await updateOpinionText(tcId, type, val)
+      alert('의견이 성공적으로 저장되었습니다.')
+    } catch (err) {
+      console.error('Failed to save opinion:', err)
+      alert('의견 저장 중 오류가 발생했습니다.')
     }
   }
 
@@ -460,7 +541,8 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
               <option value="all">전체 상태</option>
               <option value="PASS">PASS</option>
               <option value="FAIL">FAIL</option>
-              <option value="BLOCK">BLOCK</option>
+              <option value="REFINEMENT">개선 필요</option>
+              <option value="POLICY">정책 확인 필요</option>
               <option value="UNTESTED">미실시</option>
             </select>
 
@@ -500,7 +582,16 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
           // Filter by status tab selector
           const visibleCases = groupCases.filter(tc => {
             const matchesOS = activeTab === 'all' || !tc.os || tc.os.toLowerCase().includes(activeTab)
-            const matchesStatus = selectedStatus === 'all' || tc.status === selectedStatus
+            let matchesStatus = false
+            if (selectedStatus === 'all') {
+              matchesStatus = true
+            } else if (selectedStatus === 'REFINEMENT') {
+              matchesStatus = !!tc.tags?.includes('개선 필요')
+            } else if (selectedStatus === 'POLICY') {
+              matchesStatus = !!tc.tags?.includes('정책 확인 필요')
+            } else {
+              matchesStatus = tc.status === selectedStatus
+            }
             const matchesSearch = searchQuery === '' || tc.title.toLowerCase().includes(searchQuery.toLowerCase()) || tc.tc_code?.toLowerCase().includes(searchQuery.toLowerCase())
             return matchesOS && matchesStatus && matchesSearch
           })
@@ -842,6 +933,77 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                                 <div className="pt-2 border-t border-zinc-900 flex flex-col gap-1.5">
                                   <Button variant="outline" size="sm" className="hover:border-accent-green hover:text-accent-green w-full" onClick={() => updateStatus(tc.id, 'PASS')}>PASS 로 판정 완료</Button>
                                   <Button variant="outline" size="sm" className="hover:border-accent-red hover:text-accent-red w-full" onClick={() => updateStatus(tc.id, 'FAIL')}>FAIL 로 판정 완료</Button>
+                                  
+                                  <div className="grid grid-cols-2 gap-2 mt-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleTag(tc.id, '개선 필요')}
+                                      className={`px-2 py-1.5 rounded-lg border text-[11px] font-black transition-all cursor-pointer ${
+                                        tc.tags?.includes('개선 필요')
+                                          ? 'bg-yellow-500/10 border-yellow-500/40 text-yellow-500 shadow'
+                                          : 'border-zinc-800 hover:border-zinc-700 text-zinc-400 bg-transparent'
+                                      }`}
+                                    >
+                                      개선 필요 {tc.tags?.includes('개선 필요') ? '✓' : ''}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleTag(tc.id, '정책 확인 필요')}
+                                      className={`px-2 py-1.5 rounded-lg border text-[11px] font-black transition-all cursor-pointer ${
+                                        tc.tags?.includes('정책 확인 필요')
+                                          ? 'bg-purple-500/10 border-purple-500/40 text-purple-400 shadow'
+                                          : 'border-zinc-800 hover:border-zinc-700 text-zinc-400 bg-transparent'
+                                      }`}
+                                    >
+                                      정책 확인 필요 {tc.tags?.includes('정책 확인 필요') ? '✓' : ''}
+                                    </button>
+                                  </div>
+
+                                  {/* 개선 필요 입력창 */}
+                                  {tc.tags?.includes('개선 필요') && (
+                                    <div className="mt-2 space-y-1.5 bg-[#151821]/40 border border-yellow-500/20 rounded-xl p-3">
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-[10px] text-yellow-500 font-bold">개선 필요 내용 입력</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleSaveOpinion(tc.id, 'refinement')}
+                                          className="px-2 py-0.5 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-[10px] font-bold cursor-pointer"
+                                        >
+                                          저장
+                                        </button>
+                                      </div>
+                                      <input
+                                        type="text"
+                                        value={opinionTextsState[tc.id]?.refinement || ''}
+                                        onChange={(e) => handleOpinionTextChange(tc.id, 'refinement', e.target.value)}
+                                        placeholder="개선이 필요한 내용을 입력하세요..."
+                                        className="w-full bg-[#11131c]/60 border border-zinc-800 rounded px-2.5 py-1 text-zinc-200 text-xs outline-none focus:border-yellow-500/50"
+                                      />
+                                    </div>
+                                  )}
+
+                                  {/* 정책 확인 필요 입력창 */}
+                                  {tc.tags?.includes('정책 확인 필요') && (
+                                    <div className="mt-2 space-y-1.5 bg-[#151821]/40 border border-purple-500/20 rounded-xl p-3">
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-[10px] text-purple-400 font-bold">정책 확인 필요 내용 입력</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleSaveOpinion(tc.id, 'policy')}
+                                          className="px-2 py-0.5 bg-purple-500 hover:bg-purple-600 text-white rounded text-[10px] font-bold cursor-pointer"
+                                        >
+                                          저장
+                                        </button>
+                                      </div>
+                                      <input
+                                        type="text"
+                                        value={opinionTextsState[tc.id]?.policy || ''}
+                                        onChange={(e) => handleOpinionTextChange(tc.id, 'policy', e.target.value)}
+                                        placeholder="정책 확인이 필요한 내용을 입력하세요..."
+                                        className="w-full bg-[#11131c]/60 border border-zinc-800 rounded px-2.5 py-1 text-zinc-200 text-xs outline-none focus:border-purple-500/50"
+                                      />
+                                    </div>
+                                  )}
                                 </div>
 
                               </div>

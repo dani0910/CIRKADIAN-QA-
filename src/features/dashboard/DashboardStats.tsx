@@ -13,14 +13,6 @@ interface DashboardStatsProps {
 export default function DashboardStats({ projects, testCases, selectedProjectId, categoryGroups }: DashboardStatsProps) {
   const [activeTab, setActiveTab] = useState<'passfail' | 'refinement' | 'policy'>('passfail')
 
-  const metadataMap: Record<string, { period: string; testers: string; developers: string }> = {
-    'proj-1': { period: '2026.05.01 ~ 진행 중', testers: '이다은, 이다연', developers: '김개발, 박개발' },
-    'proj-2': { period: '2026.04.15 ~ 진행 중', testers: '이다연', developers: '최개발' },
-    'proj-3': { period: '2026.03.10 ~ 진행 중', testers: '이다은', developers: '정개발, 윤개발' },
-  }
-
-  const currentMetadata = metadataMap[selectedProjectId] || { period: '2026.05.01 ~ 진행 중', testers: '이다은, 이다연', developers: '김개발, 박개발' }
-
   // Filter test cases based on selection
   const filteredCases = selectedProjectId === 'all'
     ? testCases
@@ -33,25 +25,50 @@ export default function DashboardStats({ projects, testCases, selectedProjectId,
   const blockCount = filteredCases.filter(tc => tc.status === 'BLOCK').length
   const untested = filteredCases.filter(tc => tc.status === 'UNTESTED').length
 
+  const refinementCount = filteredCases.filter(tc => tc.tags?.includes('개선 필요')).length
+  const policyCount = filteredCases.filter(tc => tc.tags?.includes('정책 확인 필요')).length
+
   const executed = passCount + failCount + blockCount
-  const openIssues = Math.round(failCount * 0.32) || 0 // ~32% of failCount is open issues (e.g. 28 / 86)
+  const openIssues = Math.round(failCount * 0.32) || 0 // ~32% of failCount is open issues
   
   const executedPercent = total > 0 ? parseFloat(((executed / total) * 100).toFixed(1)) : 0
   const untestedPercent = total > 0 ? parseFloat(((untested / total) * 100).toFixed(1)) : 0
   const passPercent = executed > 0 ? parseFloat(((passCount / executed) * 100).toFixed(1)) : 0
   const failPercent = executed > 0 ? parseFloat(((failCount / executed) * 100).toFixed(1)) : 0
+
+  const refinementPercent = total > 0 ? parseFloat(((refinementCount / total) * 100).toFixed(1)) : 0
+  const policyPercent = total > 0 ? parseFloat(((policyCount / total) * 100).toFixed(1)) : 0
   
   // Custom SVG Donut calculation
   // Radius = 50, Circumference = 2 * Math.PI * 50 = 314.159
   const radius = 50
   const circ = 2 * Math.PI * radius
   
-  const passStrokeDash = (passPercent / 100) * circ
-  const failStrokeDash = (failPercent / 100) * circ
-  
-  // Dashoffsets
-  const passOffset = 0
-  const failOffset = -passStrokeDash
+  // Donut values based on activeTab
+  let donutLabel = 'Total'
+  let donutCenterVal = passCount + failCount
+  let donutData = [
+    { label: 'PASS', count: passCount, percent: passPercent, color: '#00BA54', offset: 0, strokeDash: (passPercent / 100) * circ },
+    { label: 'FAIL', count: failCount, percent: failPercent, color: '#DE3A3A', offset: -(passPercent / 100) * circ, strokeDash: (failPercent / 100) * circ }
+  ]
+
+  if (activeTab === 'refinement') {
+    donutLabel = '개선 필요'
+    donutCenterVal = refinementCount
+    const otherPercent = total > 0 ? parseFloat((((total - refinementCount) / total) * 100).toFixed(1)) : 0
+    donutData = [
+      { label: '개선 필요', count: refinementCount, percent: refinementPercent, color: '#F59E0B', offset: 0, strokeDash: (refinementPercent / 100) * circ },
+      { label: '기타', count: total - refinementCount, percent: otherPercent, color: '#1a1c23', offset: -(refinementPercent / 100) * circ, strokeDash: (otherPercent / 100) * circ }
+    ]
+  } else if (activeTab === 'policy') {
+    donutLabel = '정책 확인'
+    donutCenterVal = policyCount
+    const otherPercent = total > 0 ? parseFloat((((total - policyCount) / total) * 100).toFixed(1)) : 0
+    donutData = [
+      { label: '정책 확인 필요', count: policyCount, percent: policyPercent, color: '#A855F7', offset: 0, strokeDash: (policyPercent / 100) * circ },
+      { label: '기타', count: total - policyCount, percent: otherPercent, color: '#1a1c23', offset: -(policyPercent / 100) * circ, strokeDash: (otherPercent / 100) * circ }
+    ]
+  }
 
   // Stacked Bar Chart values dynamically calculated from categoryGroups and testCases
   const barData = categoryGroups.length > 0
@@ -59,11 +76,25 @@ export default function DashboardStats({ projects, testCases, selectedProjectId,
         const groupCases = filteredCases.filter(tc => tc.group_id === group.id)
         const totalInGroup = groupCases.length
         
-        const passInGroup = groupCases.filter(tc => tc.status === 'PASS').length
-        const failInGroup = groupCases.filter(tc => tc.status === 'FAIL').length
+        let topPercent = 0
+        let val1 = 0
+        let val2 = 0
         
-        const passPercent = totalInGroup > 0 ? Math.round((passInGroup / totalInGroup) * 100) : 0
-        const failPercent = totalInGroup > 0 ? Math.round((failInGroup / totalInGroup) * 100) : 0
+        if (activeTab === 'passfail') {
+          const passInGroup = groupCases.filter(tc => tc.status === 'PASS').length
+          const failInGroup = groupCases.filter(tc => tc.status === 'FAIL').length
+          val1 = totalInGroup > 0 ? Math.round((passInGroup / totalInGroup) * 100) : 0
+          val2 = totalInGroup > 0 ? Math.round((failInGroup / totalInGroup) * 100) : 0
+          topPercent = val1
+        } else if (activeTab === 'refinement') {
+          const refinementInGroup = groupCases.filter(tc => tc.tags?.includes('개선 필요')).length
+          val1 = totalInGroup > 0 ? Math.round((refinementInGroup / totalInGroup) * 100) : 0
+          topPercent = val1
+        } else if (activeTab === 'policy') {
+          const policyInGroup = groupCases.filter(tc => tc.tags?.includes('정책 확인 필요')).length
+          val1 = totalInGroup > 0 ? Math.round((policyInGroup / totalInGroup) * 100) : 0
+          topPercent = val1
+        }
         
         let label = group.title
         if (label.includes('.')) {
@@ -78,17 +109,18 @@ export default function DashboardStats({ projects, testCases, selectedProjectId,
 
         return {
           label,
-          pass: passPercent,
-          fail: failPercent
+          topPercent,
+          val1,
+          val2
         }
       })
     : [
-        { label: '연결/BLE', pass: 85, fail: 15 },
-        { label: '알람', pass: 72, fail: 28 },
-        { label: '조명 제어', pass: 68, fail: 32 },
-        { label: '권한', pass: 75, fail: 25 },
-        { label: '설정', pass: 81, fail: 19 },
-        { label: '기타', pass: 67, fail: 33 },
+        { label: '연결/BLE', topPercent: 85, val1: 85, val2: 15 },
+        { label: '알람', topPercent: 72, val1: 72, val2: 28 },
+        { label: '조명 제어', topPercent: 68, val1: 68, val2: 32 },
+        { label: '권한', topPercent: 75, val1: 75, val2: 25 },
+        { label: '설정', topPercent: 81, val1: 81, val2: 19 },
+        { label: '기타', topPercent: 67, val1: 67, val2: 33 },
       ]
 
   return (
@@ -105,35 +137,11 @@ export default function DashboardStats({ projects, testCases, selectedProjectId,
               진행 중
             </span>
           </div>
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-1.5 text-xs text-text-muted font-medium">
-            <div>
-              <span className="text-zinc-500 mr-1.5">프로젝트 기간</span>
-              <span className="text-zinc-300">{currentMetadata.period}</span>
-            </div>
-            <div className="w-px h-3 bg-zinc-800 hidden sm:block" />
-            <div>
-              <span className="text-zinc-500 mr-1.5">담당 QA</span>
-              <span className="text-zinc-300">{currentMetadata.testers}</span>
-            </div>
-            <div className="w-px h-3 bg-zinc-800 hidden sm:block" />
-            <div>
-              <span className="text-zinc-500 mr-1.5">개발 담당</span>
-              <span className="text-zinc-300">{currentMetadata.developers}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Date Selector */}
-        <div className="flex items-center">
-          <div className="bg-[#151821] border border-border-color rounded-xl px-4 py-2 text-xs font-semibold text-zinc-300 flex items-center gap-2 shadow-lg cursor-pointer hover:border-zinc-700">
-            <span>📅 2026.05.01 ~ 2026.06.09</span>
-            <span className="text-zinc-500 text-[10px]">▼</span>
-          </div>
         </div>
       </div>
 
-      {/* 2. Summary Metrics Cards (Row of 4) */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* 2. Summary Metrics Cards (Row of 6) */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         
         {/* Card 1: 전체 TC */}
         <Card className="flex items-center justify-between hover:border-zinc-800">
@@ -193,6 +201,38 @@ export default function DashboardStats({ projects, testCases, selectedProjectId,
           </div>
         </Card>
 
+        {/* Card 5: 개선 필요 */}
+        <Card className="flex items-center justify-between hover:border-yellow-500/20">
+          <div>
+            <span className="text-xs font-bold text-zinc-400">개선 필요</span>
+            <div className="flex items-baseline gap-1.5 mt-1.5">
+              <span className="text-3xl font-black text-yellow-500">{refinementCount}</span>
+              <span className="text-xs text-text-muted font-medium">{refinementPercent}%</span>
+            </div>
+          </div>
+          <div className="p-3 rounded-xl bg-yellow-500/5 text-yellow-500 border border-yellow-500/10">
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364.364l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+            </svg>
+          </div>
+        </Card>
+
+        {/* Card 6: 정책 확인 필요 */}
+        <Card className="flex items-center justify-between hover:border-purple-500/20">
+          <div>
+            <span className="text-xs font-bold text-zinc-400">정책 확인 필요</span>
+            <div className="flex items-baseline gap-1.5 mt-1.5">
+              <span className="text-3xl font-black text-purple-400">{policyCount}</span>
+              <span className="text-xs text-text-muted font-medium">{policyPercent}%</span>
+            </div>
+          </div>
+          <div className="p-3 rounded-xl bg-purple-500/5 text-purple-400 border border-purple-500/10">
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+        </Card>
+
       </div>
 
       {/* 3. Main Chart Card */}
@@ -236,14 +276,28 @@ export default function DashboardStats({ projects, testCases, selectedProjectId,
 
           {/* Legend */}
           <div className="flex items-center gap-4 text-xs font-bold">
-            <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-accent-green" />
-              <span className="text-zinc-300">PASS</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-accent-red" />
-              <span className="text-zinc-300">FAIL</span>
-            </div>
+            {activeTab === 'passfail' ? (
+              <>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-accent-green" />
+                  <span className="text-zinc-300">PASS</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-accent-red" />
+                  <span className="text-zinc-300">FAIL</span>
+                </div>
+              </>
+            ) : activeTab === 'refinement' ? (
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-yellow-500" />
+                <span className="text-zinc-300">개선 필요 비율</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-purple-500" />
+                <span className="text-zinc-300">정책 확인 필요 비율</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -265,58 +319,45 @@ export default function DashboardStats({ projects, testCases, selectedProjectId,
                   stroke="#1a1c23"
                   strokeWidth="12"
                 />
-                {/* PASS Circle */}
-                <circle
-                  cx="60"
-                  cy="60"
-                  r={radius}
-                  fill="none"
-                  stroke="#00BA54"
-                  strokeWidth="12"
-                  strokeDasharray={`${passStrokeDash} ${circ}`}
-                  strokeDashoffset={passOffset}
-                  strokeLinecap="round"
-                />
-                {/* FAIL Circle */}
-                <circle
-                  cx="60"
-                  cy="60"
-                  r={radius}
-                  fill="none"
-                  stroke="#DE3A3A"
-                  strokeWidth="12"
-                  strokeDasharray={`${failStrokeDash} ${circ}`}
-                  strokeDashoffset={failOffset}
-                  strokeLinecap="round"
-                />
+                {/* Segments */}
+                {donutData.map((seg, idx) => (
+                  <circle
+                    key={idx}
+                    cx="60"
+                    cy="60"
+                    r={radius}
+                    fill="none"
+                    stroke={seg.color}
+                    strokeWidth="12"
+                    strokeDasharray={`${seg.strokeDash} ${circ}`}
+                    strokeDashoffset={seg.offset}
+                    strokeLinecap="round"
+                  />
+                ))}
               </svg>
               {/* Inner Label */}
               <div className="absolute text-center space-y-0.5 select-none">
-                <div className="text-3xl font-black text-white">{passCount + failCount}</div>
-                <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Total</div>
+                <div className="text-3xl font-black text-white">{donutCenterVal}</div>
+                <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">{donutLabel}</div>
               </div>
             </div>
 
             {/* Donut Legend Stats */}
             <div className="space-y-4 font-mono text-sm self-center">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2 font-bold text-zinc-300">
-                  <span className="w-2.5 h-2.5 rounded-full bg-accent-green" />
-                  <span>PASS</span>
+              {donutData.map((seg, idx) => (
+                <div key={idx} className="space-y-1">
+                  <div className="flex items-center gap-2 font-bold text-zinc-300">
+                    <span 
+                      className="w-2.5 h-2.5 rounded-full" 
+                      style={{ backgroundColor: seg.color }}
+                    />
+                    <span>{seg.label}</span>
+                  </div>
+                  <div className="pl-4.5 text-zinc-400 font-bold">
+                    {seg.count} <span className="text-xs text-zinc-500 font-medium">({seg.percent}%)</span>
+                  </div>
                 </div>
-                <div className="pl-4.5 text-zinc-400 font-bold">
-                  {passCount} <span className="text-xs text-zinc-500 font-medium">({passPercent}%)</span>
-                </div>
-              </div>
-              <div className="space-y-1">
-                <div className="flex items-center gap-2 font-bold text-zinc-300">
-                  <span className="w-2.5 h-2.5 rounded-full bg-accent-red" />
-                  <span>FAIL</span>
-                </div>
-                <div className="pl-4.5 text-zinc-400 font-bold">
-                  {failCount} <span className="text-xs text-zinc-500 font-medium">({failPercent}%)</span>
-                </div>
-              </div>
+              ))}
             </div>
 
           </div>
@@ -340,20 +381,34 @@ export default function DashboardStats({ projects, testCases, selectedProjectId,
                   <div key={idx} className="relative flex flex-col items-center group w-12 z-10">
                     {/* Top percentage text */}
                     <span className="text-[11px] font-black text-zinc-200 mb-2 font-mono">
-                      {bar.pass}%
+                      {bar.topPercent}%
                     </span>
                     {/* Vertical Cylinder */}
                     <div className="w-5 h-36 rounded-full bg-zinc-900 overflow-hidden flex flex-col justify-end border border-border-color">
-                      {/* FAIL block (Top) */}
-                      <div 
-                        className="bg-accent-red transition-all duration-500" 
-                        style={{ height: `${bar.fail}%` }} 
-                      />
-                      {/* PASS block (Bottom) */}
-                      <div 
-                        className="bg-accent-green transition-all duration-500" 
-                        style={{ height: `${bar.pass}%` }} 
-                      />
+                      {activeTab === 'passfail' ? (
+                        <>
+                          {/* FAIL block (Top) */}
+                          <div 
+                            className="bg-accent-red transition-all duration-500" 
+                            style={{ height: `${bar.val2}%` }} 
+                          />
+                          {/* PASS block (Bottom) */}
+                          <div 
+                            className="bg-accent-green transition-all duration-500" 
+                            style={{ height: `${bar.val1}%` }} 
+                          />
+                        </>
+                      ) : activeTab === 'refinement' ? (
+                        <div 
+                          className="bg-yellow-500 transition-all duration-500" 
+                          style={{ height: `${bar.val1}%` }} 
+                        />
+                      ) : (
+                        <div 
+                          className="bg-purple-500 transition-all duration-500" 
+                          style={{ height: `${bar.val1}%` }} 
+                        />
+                      )}
                     </div>
                   </div>
                 )

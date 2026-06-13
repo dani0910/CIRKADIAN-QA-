@@ -321,10 +321,6 @@ export default async function Home({
 
       {/* Developer A Area (Dashboard & Statistics) */}
       <section className="space-y-4">
-        <div className="flex items-center gap-2">
-          <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-accent-green font-mono border border-emerald-500/20">개발자 A</span>
-          <span className="text-xs font-mono text-zinc-500">src/features/dashboard/</span>
-        </div>
         <DashboardStats projects={projects} testCases={testCases} selectedProjectId={selectedProject || 'proj-1'} categoryGroups={categoryGroups} />
       </section>
 
@@ -333,10 +329,6 @@ export default async function Home({
 
       {/* Developer B Area (Test Case Accordion & Image Upload) */}
       <section className="space-y-4">
-        <div className="flex items-center gap-2">
-          <span className="px-2 py-0.5 rounded text-[10px] bg-red-500/10 text-accent-red font-mono border border-red-500/20">개발자 B</span>
-          <span className="text-xs font-mono text-zinc-500">src/features/testcase/</span>
-        </div>
         <TestCaseList projectId={selectedProject} categoryGroups={categoryGroups} testCases={testCases} tcDetails={tcDetails} />
       </section>
       
