@@ -311,13 +311,6 @@ export default async function Home({
   return (
     <div className="space-y-10 max-w-6xl mx-auto">
       
-      {/* Introduction */}
-      <div>
-        <h1 className="text-3xl font-black text-white tracking-tight">QA 대시보드 및 테스트 케이스</h1>
-        <p className="text-sm text-text-muted mt-1">
-          Supabase로부터 데이터를 조회하고 각 기능별 하위 피처 모듈로 props를 배분하는 App Router 서버 컴포넌트입니다.
-        </p>
-      </div>
 
       {/* Developer A Area (Dashboard & Statistics) */}
       <section className="space-y-4">
