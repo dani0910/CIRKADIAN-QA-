@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React from 'react'
 import { Card } from '@/components/ui/Card'
 
 interface DashboardStatsProps {
@@ -11,8 +11,6 @@ interface DashboardStatsProps {
 }
 
 export default function DashboardStats({ projects, testCases, selectedProjectId, categoryGroups }: DashboardStatsProps) {
-  const [activeTab, setActiveTab] = useState<'passfail' | 'refinement' | 'policy'>('passfail')
-
   // Filter test cases based on selection
   const filteredCases = selectedProjectId === 'all'
     ? testCases
@@ -25,9 +23,6 @@ export default function DashboardStats({ projects, testCases, selectedProjectId,
   const blockCount = filteredCases.filter(tc => tc.status === 'BLOCK').length
   const untested = filteredCases.filter(tc => tc.status === 'UNTESTED').length
 
-  const refinementCount = filteredCases.filter(tc => tc.tags?.includes('개선 필요')).length
-  const policyCount = filteredCases.filter(tc => tc.tags?.includes('정책 확인 필요')).length
-
   const executed = passCount + failCount + blockCount
   const openIssues = Math.round(failCount * 0.32) || 0 // ~32% of failCount is open issues
   
@@ -36,41 +31,16 @@ export default function DashboardStats({ projects, testCases, selectedProjectId,
   const passPercent = executed > 0 ? parseFloat(((passCount / executed) * 100).toFixed(1)) : 0
   const failPercent = executed > 0 ? parseFloat(((failCount / executed) * 100).toFixed(1)) : 0
 
-  const refinementPercent = total > 0 ? parseFloat(((refinementCount / total) * 100).toFixed(1)) : 0
-  const policyPercent = total > 0 ? parseFloat(((policyCount / total) * 100).toFixed(1)) : 0
-  
   // Custom SVG Donut calculation
-  // Radius = 50, Circumference = 2 * Math.PI * 50 = 314.159
   const radius = 50
   const circ = 2 * Math.PI * radius
-  
-  // Donut values based on activeTab
-  let donutLabel = 'Total'
-  let donutCenterVal = passCount + failCount
-  let donutData = [
+  const donutLabel = 'PASS / FAIL'
+  const donutCenterVal = executed
+  const donutData = [
     { label: 'PASS', count: passCount, percent: passPercent, color: '#00BA54', offset: 0, strokeDash: (passPercent / 100) * circ },
     { label: 'FAIL', count: failCount, percent: failPercent, color: '#DE3A3A', offset: -(passPercent / 100) * circ, strokeDash: (failPercent / 100) * circ }
   ]
 
-  if (activeTab === 'refinement') {
-    donutLabel = '개선 필요'
-    donutCenterVal = refinementCount
-    const otherPercent = total > 0 ? parseFloat((((total - refinementCount) / total) * 100).toFixed(1)) : 0
-    donutData = [
-      { label: '개선 필요', count: refinementCount, percent: refinementPercent, color: '#F59E0B', offset: 0, strokeDash: (refinementPercent / 100) * circ },
-      { label: '기타', count: total - refinementCount, percent: otherPercent, color: '#1a1c23', offset: -(refinementPercent / 100) * circ, strokeDash: (otherPercent / 100) * circ }
-    ]
-  } else if (activeTab === 'policy') {
-    donutLabel = '정책 확인'
-    donutCenterVal = policyCount
-    const otherPercent = total > 0 ? parseFloat((((total - policyCount) / total) * 100).toFixed(1)) : 0
-    donutData = [
-      { label: '정책 확인 필요', count: policyCount, percent: policyPercent, color: '#A855F7', offset: 0, strokeDash: (policyPercent / 100) * circ },
-      { label: '기타', count: total - policyCount, percent: otherPercent, color: '#1a1c23', offset: -(policyPercent / 100) * circ, strokeDash: (otherPercent / 100) * circ }
-    ]
-  }
-
-  // Stacked Bar Chart values dynamically calculated from categoryGroups and testCases
   const barData = categoryGroups.length > 0
     ? categoryGroups.map(group => {
         const groupCases = filteredCases.filter(tc => tc.group_id === group.id)
@@ -80,21 +50,11 @@ export default function DashboardStats({ projects, testCases, selectedProjectId,
         let val1 = 0
         let val2 = 0
         
-        if (activeTab === 'passfail') {
-          const passInGroup = groupCases.filter(tc => tc.status === 'PASS').length
-          const failInGroup = groupCases.filter(tc => tc.status === 'FAIL').length
-          val1 = totalInGroup > 0 ? Math.round((passInGroup / totalInGroup) * 100) : 0
-          val2 = totalInGroup > 0 ? Math.round((failInGroup / totalInGroup) * 100) : 0
-          topPercent = val1
-        } else if (activeTab === 'refinement') {
-          const refinementInGroup = groupCases.filter(tc => tc.tags?.includes('개선 필요')).length
-          val1 = totalInGroup > 0 ? Math.round((refinementInGroup / totalInGroup) * 100) : 0
-          topPercent = val1
-        } else if (activeTab === 'policy') {
-          const policyInGroup = groupCases.filter(tc => tc.tags?.includes('정책 확인 필요')).length
-          val1 = totalInGroup > 0 ? Math.round((policyInGroup / totalInGroup) * 100) : 0
-          topPercent = val1
-        }
+        const passInGroup = groupCases.filter(tc => tc.status === 'PASS').length
+        const failInGroup = groupCases.filter(tc => tc.status === 'FAIL').length
+        val1 = totalInGroup > 0 ? Math.round((passInGroup / totalInGroup) * 100) : 0
+        val2 = totalInGroup > 0 ? Math.round((failInGroup / totalInGroup) * 100) : 0
+        topPercent = val1
         
         let label = group.title
         if (label.includes('.')) {
@@ -140,10 +100,8 @@ export default function DashboardStats({ projects, testCases, selectedProjectId,
         </div>
       </div>
 
-      {/* 2. Summary Metrics Cards (Row of 6) */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        
-        {/* Card 1: 전체 TC */}
+      {/* 2. Summary Metrics Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="flex items-center justify-between hover:border-zinc-800">
           <div>
             <span className="text-xs font-bold text-zinc-400">전체 TC</span>
@@ -155,8 +113,6 @@ export default function DashboardStats({ projects, testCases, selectedProjectId,
             </svg>
           </div>
         </Card>
-
-        {/* Card 2: 실행 완료 */}
         <Card className="flex items-center justify-between hover:border-[#00BA54]/20">
           <div>
             <span className="text-xs font-bold text-zinc-400">실행 완료</span>
@@ -171,8 +127,6 @@ export default function DashboardStats({ projects, testCases, selectedProjectId,
             </svg>
           </div>
         </Card>
-
-        {/* Card 3: 미실시 */}
         <Card className="flex items-center justify-between hover:border-zinc-800">
           <div>
             <span className="text-xs font-bold text-zinc-400">미실시</span>
@@ -187,8 +141,6 @@ export default function DashboardStats({ projects, testCases, selectedProjectId,
             </svg>
           </div>
         </Card>
-
-        {/* Card 4: Open 이슈 */}
         <Card className="flex items-center justify-between hover:border-accent-red/20">
           <div>
             <span className="text-xs font-bold text-zinc-400">Open 이슈</span>
@@ -200,39 +152,6 @@ export default function DashboardStats({ projects, testCases, selectedProjectId,
             </svg>
           </div>
         </Card>
-
-        {/* Card 5: 개선 필요 */}
-        <Card className="flex items-center justify-between hover:border-yellow-500/20">
-          <div>
-            <span className="text-xs font-bold text-zinc-400">개선 필요</span>
-            <div className="flex items-baseline gap-1.5 mt-1.5">
-              <span className="text-3xl font-black text-yellow-500">{refinementCount}</span>
-              <span className="text-xs text-text-muted font-medium">{refinementPercent}%</span>
-            </div>
-          </div>
-          <div className="p-3 rounded-xl bg-yellow-500/5 text-yellow-500 border border-yellow-500/10">
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364.364l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-            </svg>
-          </div>
-        </Card>
-
-        {/* Card 6: 정책 확인 필요 */}
-        <Card className="flex items-center justify-between hover:border-purple-500/20">
-          <div>
-            <span className="text-xs font-bold text-zinc-400">정책 확인 필요</span>
-            <div className="flex items-baseline gap-1.5 mt-1.5">
-              <span className="text-3xl font-black text-purple-400">{policyCount}</span>
-              <span className="text-xs text-text-muted font-medium">{policyPercent}%</span>
-            </div>
-          </div>
-          <div className="p-3 rounded-xl bg-purple-500/5 text-purple-400 border border-purple-500/10">
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-          </div>
-        </Card>
-
       </div>
 
       {/* 3. Main Chart Card */}
@@ -240,64 +159,19 @@ export default function DashboardStats({ projects, testCases, selectedProjectId,
         
         {/* Chart Header & Legend */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800/60 pb-4">
-          {/* Tab Selection */}
-          <div className="flex items-center gap-1.5 bg-zinc-950 p-1 rounded-xl border border-border-color self-start">
-            <button
-              onClick={() => setActiveTab('passfail')}
-              className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${
-                activeTab === 'passfail'
-                  ? 'bg-accent-green text-white shadow'
-                  : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              PASS/FAIL 현황
-            </button>
-            <button
-              onClick={() => setActiveTab('refinement')}
-              className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${
-                activeTab === 'refinement'
-                  ? 'bg-accent-green text-white shadow'
-                  : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              개선 필요 현황
-            </button>
-            <button
-              onClick={() => setActiveTab('policy')}
-              className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${
-                activeTab === 'policy'
-                  ? 'bg-accent-green text-white shadow'
-                  : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              정책 확인 필요 현황
-            </button>
+          <div>
+            <h2 className="text-lg font-black text-white">PASS / FAIL 현황</h2>
+            <p className="text-xs text-zinc-500 mt-1">전체 실행 결과를 PASS/FAIL 기준으로 보여줍니다.</p>
           </div>
-
-          {/* Legend */}
           <div className="flex items-center gap-4 text-xs font-bold">
-            {activeTab === 'passfail' ? (
-              <>
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-accent-green" />
-                  <span className="text-zinc-300">PASS</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-accent-red" />
-                  <span className="text-zinc-300">FAIL</span>
-                </div>
-              </>
-            ) : activeTab === 'refinement' ? (
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-yellow-500" />
-                <span className="text-zinc-300">개선 필요 비율</span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-purple-500" />
-                <span className="text-zinc-300">정책 확인 필요 비율</span>
-              </div>
-            )}
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-accent-green" />
+              <span className="text-zinc-300">PASS</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-accent-red" />
+              <span className="text-zinc-300">FAIL</span>
+            </div>
           </div>
         </div>
 
@@ -385,30 +259,16 @@ export default function DashboardStats({ projects, testCases, selectedProjectId,
                     </span>
                     {/* Vertical Cylinder */}
                     <div className="w-5 h-36 rounded-full bg-zinc-900 overflow-hidden flex flex-col justify-end border border-border-color">
-                      {activeTab === 'passfail' ? (
-                        <>
-                          {/* FAIL block (Top) */}
-                          <div 
-                            className="bg-accent-red transition-all duration-500" 
-                            style={{ height: `${bar.val2}%` }} 
-                          />
-                          {/* PASS block (Bottom) */}
-                          <div 
-                            className="bg-accent-green transition-all duration-500" 
-                            style={{ height: `${bar.val1}%` }} 
-                          />
-                        </>
-                      ) : activeTab === 'refinement' ? (
+                      <>
                         <div 
-                          className="bg-yellow-500 transition-all duration-500" 
+                          className="bg-accent-red transition-all duration-500" 
+                          style={{ height: `${bar.val2}%` }} 
+                        />
+                        <div 
+                          className="bg-accent-green transition-all duration-500" 
                           style={{ height: `${bar.val1}%` }} 
                         />
-                      ) : (
-                        <div 
-                          className="bg-purple-500 transition-all duration-500" 
-                          style={{ height: `${bar.val1}%` }} 
-                        />
-                      )}
+                      </>
                     </div>
                   </div>
                 )
