@@ -73,28 +73,30 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzd
 
 ---
 
-## 3. Vercel 배포 및 AWS S3 이미지 업로드 전환 가이드
+## 3. Vercel 배포 및 Supabase Storage 이미지 업로드 전환 가이드
 
-Vercel은 서버리스 아키텍처 환경으로 작동하므로 로컬 파일 시스템(`public/uploads`)에 영구적으로 파일을 쓰고 저장할 수 없습니다. 따라서 이미지를 업로드하고 링크를 불러오려면 외부 파일 스토리지 서비스(AWS S3)로 저장 방식을 수정해야 합니다.
+Vercel은 서버리스 아키텍처 환경으로 작동하므로 로컬 파일 시스템(`public/uploads`)에 영구적으로 파일을 쓰고 저장할 수 없습니다. 따라서 이미지를 업로드하고 링크를 불러오려면 외부 파일 스토리지인 **Supabase Storage**로 저장 방식을 수정해야 합니다.
 
-### 3.1 AWS SDK 패키지 설치
-S3 사용을 위해 아래 패키지를 프로젝트에 설치합니다.
-```bash
-npm install @aws-sdk/client-s3
-```
+Supabase Storage를 이용하면 별도의 AWS SDK 설치나 복잡한 AWS 환경 변수 설정 없이 기존에 연동된 Supabase 설정을 활용하여 손쉽게 영구적인 이미지 업로드를 구현할 수 있습니다.
 
-### 3.2 `.env.local` (및 Vercel 환경변수) 추가 설정
-AWS S3 접근용 자격 증명 환경 변수를 추가합니다.
-```env
-AWS_ACCESS_KEY_ID=your_aws_access_key
-AWS_SECRET_ACCESS_KEY=your_aws_secret_key
-AWS_REGION=ap-northeast-2
-AWS_S3_BUCKET_NAME=cirkadian-qa-uploads
-```
+### 3.1 Supabase 스토리지 버킷 및 보안 정책 설정
 
-### 3.3 `src/app/actions.ts` 코드 변경 상세 가이드
+1. **Storage Bucket 생성**:
+   - Supabase 프로젝트 대시보드에서 `Storage` 메뉴로 이동합니다.
+   - `New Bucket`을 클릭하고 버킷 이름을 `evidences`로 입력합니다.
+   - 업로드된 이미지를 퍼블릭 URL로 조회할 수 있도록 **Public** 옵션을 반드시 활성화(체크)해 줍니다.
 
-로컬 디렉토리 저장 방식에서 AWS S3 버킷 저장 및 버킷 내 업로드 주소(`https://...`) 리턴 구조로 변경합니다.
+2. **보안 정책 (RLS Policies) 설정**:
+   - 생성한 `evidences` 버킷의 `Policies` 설정 탭으로 이동합니다.
+   - 클라이언트 세션(`createClient`)에서 파일을 업로드할 수 있어야 하므로, `Insert` 권한을 부여하는 정책을 추가합니다.
+   - 예를 들어, 로그인 여부와 무관하게 익명(anon) 사용자도 증적 이미지를 업로드할 수 있도록 하려면 다음과 같이 정책을 구성합니다:
+     - **Allowed operations**: `INSERT`, `SELECT`
+     - **Target roles**: `anon`, `authenticated`
+     - **Expression**: `true` (또는 필요에 따라 특정 폴더 경로 규칙 적용)
+
+### 3.2 `src/app/actions.ts` 코드 변경 상세 가이드
+
+로컬 디렉토리 저장 방식에서 Supabase Storage 버킷 저장 및 퍼블릭 이미지 주소(`https://...`) 리턴 구조로 변경합니다.
 
 #### [기존 로컬 업로드 코드 (actions.ts)]
 ```typescript
@@ -121,52 +123,39 @@ export async function uploadTestCaseEvidence(tcId: string, formData: FormData) {
 }
 ```
 
-#### [변경할 S3 기반 업로드 코드 (actions.ts)]
-기존 코드를 아래와 같이 대체하여 S3 PutObject 명령을 수행하도록 수정합니다.
+#### [변경 완료된 Supabase Storage 기반 업로드 코드 (actions.ts)]
+기존 코드를 아래와 같이 대체하여 Supabase Storage에 직접 업로드하도록 구현되었습니다.
 
 ```typescript
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
-
-// S3 클라이언트 초기화
-const s3Client = new S3Client({
-  region: process.env.AWS_REGION || 'ap-northeast-2',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
-  },
-})
-
 export async function uploadTestCaseEvidence(tcId: string, formData: FormData) {
   const file = formData.get('file') as File | null
   if (!file) {
     throw new Error('No file uploaded')
   }
 
-  // 바이너리 데이터 변환
-  const bytes = await file.arrayBuffer()
-  const buffer = Buffer.from(bytes)
-
   const fileExt = path.extname(file.name)
   const fileName = `evidences/${tcId}-${Date.now()}${fileExt}`
 
-  // S3 업로드 명령 구성
-  const command = new PutObjectCommand({
-    Bucket: process.env.AWS_S3_BUCKET_NAME,
-    Key: fileName,
-    Body: buffer,
-    ContentType: file.type || 'image/jpeg',
-  })
-
-  // S3 전송 실행
-  await s3Client.send(command)
-
-  // S3 공개 액세스 이미지 경로 생성
-  const fileUrl = `https://${process.env.AWS_S3_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileName}`
-
-  // -------------------------------------------------------------
-  // Supabase DB에 이미지 주소 저장 로직 (기존과 동일하게 작동)
-  // -------------------------------------------------------------
   const supabase = await createClient()
+
+  // 1. Supabase Storage에 파일 업로드
+  const { data: uploadData, error: uploadError } = await supabase.storage
+    .from('evidences')
+    .upload(fileName, file, {
+      contentType: file.type || 'image/jpeg',
+      upsert: false
+    })
+
+  if (uploadError) {
+    throw new Error(`Failed to upload image to Supabase Storage: ${uploadError.message}`)
+  }
+
+  // 2. 업로드된 파일의 Public URL 획득
+  const { data: { publicUrl } } = supabase.storage
+    .from('evidences')
+    .getPublicUrl(fileName)
+
+  // 3. Supabase DB에 이미지 URL 추가 저장
   const { data: detail, error: fetchError } = await supabase
     .from('tc_details')
     .select('evidence_urls')
@@ -178,7 +167,7 @@ export async function uploadTestCaseEvidence(tcId: string, formData: FormData) {
   }
 
   const currentUrls = detail?.evidence_urls || []
-  const nextUrls = [...currentUrls, fileUrl]
+  const nextUrls = [...currentUrls, publicUrl]
 
   const { error: updateError } = await supabase
     .from('tc_details')
@@ -190,7 +179,7 @@ export async function uploadTestCaseEvidence(tcId: string, formData: FormData) {
   }
 
   revalidatePath('/')
-  return fileUrl
+  return publicUrl
 }
 ```
 
@@ -198,5 +187,4 @@ export async function uploadTestCaseEvidence(tcId: string, formData: FormData) {
 
 ## 4. Vercel 배포 시 주의점
 1. **Supabase 환경 변수 설정**: Vercel Dashboard의 `Settings > Environment Variables`에서 `NEXT_PUBLIC_SUPABASE_URL` 및 `NEXT_PUBLIC_SUPABASE_ANON_KEY`를 환경 변수로 등록해야 합니다.
-2. **AWS S3 환경 변수 설정**: S3 업로드 설정에 필요한 4가지 AWS 키(`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_S3_BUCKET_NAME`)도 Vercel 환경 변수에 필수로 추가해야 빌드 및 파일 저장 기능이 정상 작동합니다.
-3. **AWS S3 Bucket CORS 설정**: 이미지 업로드 및 도메인 교차 읽기 에러 방지를 위해 S3 버킷 권한에서 Vercel의 도메인(또는 `*`)을 허용하도록 CORS 구성을 추가해야 합니다.
+2. **Supabase Storage 버킷 생성 및 RLS 설정**: 버킷 이름이 `evidences`로 일치하는지 확인하고, 해당 버킷의 RLS 정책이 `Insert` 및 `Select` 권한을 올바르게 부여하고 있는지 다시 한번 검증하십시오.
