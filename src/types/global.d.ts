@@ -3,6 +3,10 @@ declare global {
     id: string
     name: string
     description?: string | null
+    qa?: string | null
+    developer?: string | null
+    designer?: string | null
+    period?: string | null
     created_at: string
   }
 
