@@ -3,7 +3,6 @@
 import { createClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { randomUUID } from 'crypto'
-import { writeFile, mkdir } from 'fs/promises'
 import path from 'path'
 
 export async function createProject(name: string, description?: string) {
@@ -184,21 +183,29 @@ export async function uploadTestCaseEvidence(tcId: string, formData: FormData) {
     throw new Error('No file uploaded')
   }
 
-  const bytes = await file.arrayBuffer()
-  const buffer = Buffer.from(bytes)
-
-  const uploadDir = path.join(process.cwd(), 'public', 'uploads')
-  await mkdir(uploadDir, { recursive: true })
-
   const fileExt = path.extname(file.name)
-  const fileName = `${tcId}-${Date.now()}${fileExt}`
-  const filePath = path.join(uploadDir, fileName)
-
-  await writeFile(filePath, buffer)
-
-  const fileUrl = `/uploads/${fileName}`
+  const fileName = `evidences/${tcId}-${Date.now()}${fileExt}`
 
   const supabase = await createClient()
+
+  // 1. Supabase Storage에 파일 업로드
+  const { data: uploadData, error: uploadError } = await supabase.storage
+    .from('evidences')
+    .upload(fileName, file, {
+      contentType: file.type || 'image/jpeg',
+      upsert: false
+    })
+
+  if (uploadError) {
+    throw new Error(`Failed to upload image to Supabase Storage: ${uploadError.message}`)
+  }
+
+  // 2. 업로드된 파일의 Public URL 획득
+  const { data: { publicUrl } } = supabase.storage
+    .from('evidences')
+    .getPublicUrl(fileName)
+
+  // 3. Supabase DB에 이미지 URL 추가 저장
   const { data: detail, error: fetchError } = await supabase
     .from('tc_details')
     .select('evidence_urls')
@@ -210,7 +217,7 @@ export async function uploadTestCaseEvidence(tcId: string, formData: FormData) {
   }
 
   const currentUrls = detail?.evidence_urls || []
-  const nextUrls = [...currentUrls, fileUrl]
+  const nextUrls = [...currentUrls, publicUrl]
 
   const { error: updateError } = await supabase
     .from('tc_details')
@@ -222,7 +229,7 @@ export async function uploadTestCaseEvidence(tcId: string, formData: FormData) {
   }
 
   revalidatePath('/')
-  return fileUrl
+  return publicUrl
 }
 
 export async function addTestCaseComment(tcId: string, comment: {
