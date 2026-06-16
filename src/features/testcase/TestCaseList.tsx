@@ -231,7 +231,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
       setNewGroupTitle('')
       setIsAddGroupModalOpen(false)
     } catch (err: any) {
-      setGroupErrorMsg(err.message || '대분류 추가 중 오류가 발생했습니다.')
+      setGroupErrorMsg(err.message || '기능 분류 추가 중 오류가 발생했습니다.')
     } finally {
       setIsAddingGroup(false)
     }
@@ -455,14 +455,12 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
     const styles = {
       PASS: 'bg-[#00BA54]/10 text-accent-green border border-[#00BA54]/20',
       FAIL: 'bg-[#DE3A3A]/10 text-[#DE3A3A] border border-[#DE3A3A]/20',
-      BLOCK: 'bg-yellow-500/10 text-yellow-500 border border-yellow-500/20',
       UNTESTED: 'bg-zinc-800 text-zinc-400 border border-zinc-700'
     }
 
     const labels = {
       PASS: 'PASS',
       FAIL: 'FAIL',
-      BLOCK: 'BLOCK',
       UNTESTED: '미실시'
     }
 
@@ -486,7 +484,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
             className="flex items-center gap-1.5 font-bold hover:border-accent-green hover:text-accent-green cursor-pointer"
             onClick={() => setIsAddGroupModalOpen(true)}
           >
-            <span>+</span> 대분류 추가
+            <span>+</span> 기능 분류 추가
           </Button>
           <Button 
             variant="primary" 
@@ -519,19 +517,6 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              className="bg-card-bg border border-border-color rounded-xl px-3 py-2 text-xs font-bold text-zinc-300 outline-none cursor-pointer hover:border-zinc-700"
-            >
-              <option value="all">기능 영역 전체</option>
-              <option value="BLE">BLE / 페어링</option>
-              <option value="기기전환">기기 전환</option>
-              <option value="동기화">동기화</option>
-              <option value="통신">통신</option>
-              <option value="예외 처리">예외 처리</option>
-            </select>
 
             <select
               value={selectedStatus}
@@ -567,9 +552,9 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
         {filteredGroups.length === 0 ? (
           <div className="border border-dashed border-border-color rounded-2xl p-10 text-center bg-card-bg/5 space-y-3">
             <div className="text-zinc-600 text-3xl select-none">📂</div>
-            <h3 className="text-sm font-bold text-zinc-300">등록된 대분류가 없습니다</h3>
+            <h3 className="text-sm font-bold text-zinc-300">등록된 기능 분류가 없습니다</h3>
             <p className="text-xs text-text-muted max-w-sm mx-auto leading-relaxed">
-              이 프로젝트에 등록된 테스트 케이스 대분류가 없습니다. 우측 상단의 <strong>'+ 대분류 추가'</strong> 버튼을 클릭하여 테스트 진행 영역을 분류해 보세요.
+              이 프로젝트에 등록된 테스트 케이스 기능 분류가 없습니다. 우측 상단의 <strong>'+ 기능 분류 추가'</strong> 버튼을 클릭하여 테스트 진행 영역을 분류해 보세요.
             </p>
           </div>
         ) : (
@@ -712,14 +697,12 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                                   </div>
                                   <div className="bg-[#090A0D]/50 border border-border-color rounded-xl p-4.5 space-y-3.5">
                                     {detail?.steps.map((step, idx) => {
-                                      const stepStatus = detail.step_statuses?.[idx] || 'UNTESTED'
                                       return (
                                         <div key={idx} className="flex items-start justify-between gap-4">
                                           <div className="flex items-start gap-2.5 text-zinc-300 leading-relaxed">
                                             <span className="font-bold text-accent-green font-mono">{idx + 1}.</span>
                                             <span>{step}</span>
                                           </div>
-                                          <Badge status={stepStatus as TestCaseStatus} className="text-[10px] scale-90 select-none shrink-0" />
                                         </div>
                                       )
                                     })}
@@ -933,6 +916,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                                 <div className="pt-2 border-t border-zinc-900 flex flex-col gap-1.5">
                                   <Button variant="outline" size="sm" className="hover:border-accent-green hover:text-accent-green w-full" onClick={() => updateStatus(tc.id, 'PASS')}>PASS 로 판정 완료</Button>
                                   <Button variant="outline" size="sm" className="hover:border-accent-red hover:text-accent-red w-full" onClick={() => updateStatus(tc.id, 'FAIL')}>FAIL 로 판정 완료</Button>
+                                  <Button variant="outline" size="sm" className="hover:border-zinc-500 hover:text-zinc-300 w-full" onClick={() => updateStatus(tc.id, 'UNTESTED')}>미실시 상태로 변경</Button>
                                   
                                   <div className="grid grid-cols-2 gap-2 mt-1">
                                     <button

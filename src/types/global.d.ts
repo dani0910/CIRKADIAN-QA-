@@ -10,7 +10,7 @@ declare global {
     created_at: string
   }
 
-  type TestCaseStatus = 'PASS' | 'FAIL' | 'UNTESTED' | 'BLOCK'
+  type TestCaseStatus = 'PASS' | 'FAIL' | 'UNTESTED'
 
   interface CategoryGroup {
     id: string
