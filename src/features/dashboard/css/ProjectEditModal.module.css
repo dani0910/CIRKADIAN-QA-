@@ -1,0 +1,124 @@
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  padding: 1rem;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.modalContent {
+  width: 100%;
+  max-width: 28rem;
+  background-color: #11131c;
+  border: 1px solid #222631;
+  border-radius: 1rem;
+  padding: 1.5rem;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  animation: zoomIn 0.2s ease-out;
+}
+
+.title {
+  font-size: 1.125rem;
+  font-weight: 900;
+  color: #fff;
+  margin-bottom: 0.25rem;
+}
+
+.subtitle {
+  font-size: 0.75rem;
+  color: #71717a;
+  margin-bottom: 1.25rem;
+}
+
+.errorAlert {
+  background-color: rgba(220, 38, 38, 0.1);
+  border: 1px solid rgba(220, 38, 38, 0.2);
+  color: #DE3A3A;
+  padding: 0.625rem 0.875rem;
+  border-radius: 0.75rem;
+  font-size: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-height: 30rem;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #71717a;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.input, .select, .textarea {
+  width: 100%;
+  background-color: #090A0D;
+  border: 1px solid #222631;
+  border-radius: 0.75rem;
+  padding: 0.625rem 0.875rem;
+  font-size: 0.75rem;
+  color: #e4e4e7;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.input:focus, .select:focus, .textarea:focus {
+  border-color: #62ABAB;
+}
+
+.select {
+  cursor: pointer;
+  color: #d4d4d8;
+}
+
+.textarea {
+  resize: none;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+}
+
+.saveBtn {
+  font-weight: 700;
+  background-color: #00BA54;
+  color: #000;
+  border: none;
+  box-shadow: 0 10px 15px -3px rgba(0, 186, 84, 0.2);
+}
+
+.saveBtn:hover {
+  background-color: #009141;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes zoomIn {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
