@@ -10,7 +10,7 @@ const mockProjects: Project[] = [
   { id: 'proj-3', name: '관리자 웹', description: '관리자 웹사이트 QA 검증', qa: '이다은', developer: '이준호', designer: '김민지', period: '2026.03.10 ~ 2026.06.30', created_at: new Date().toISOString() }
 ]
 
-// Mock Category Groups (대분류)
+// Mock Category Groups (기능 분류)
 const mockCategoryGroups: CategoryGroup[] = [
   { id: 'group-a', title: '5-2-A. 다중 램프 스캔 및 순차 페어링 동작' },
   { id: 'group-b', title: '5-2-B. 다중 기기 간 제어 전환(스위칭)' },
@@ -116,21 +116,18 @@ const generateMockTestCases = (projectId: string): TestCase[] => {
     }
   ]
 
-  // Add dummy fill testcases to hit exact numbers for stats (362 PASS, 86 FAIL, 64 BLOCK, 130 UNTESTED)
+  // Add dummy fill testcases to hit exact numbers for stats (362 PASS, 86 FAIL, 130 UNTESTED)
   let passMax = 359
   let failMax = 83
-  let blockMax = 64
   let untestedMax = 129
 
   if (projectId === 'proj-2') {
     passMax = 237
     failMax = 39
-    blockMax = 30
     untestedMax = 79
   } else if (projectId === 'proj-3') {
     passMax = 177
     failMax = 12
-    blockMax = 10
     untestedMax = 44
   }
 
@@ -141,10 +138,6 @@ const generateMockTestCases = (projectId: string): TestCase[] => {
   // FAIL: 3 already in active list (tc-scan-004, tc-switch-001, tc-switch-002) -> Add failMax
   for (let i = 0; i < failMax; i++) {
     tcs.push({ id: `tc-fail-fill-${i}`, project_id: 'proj-1', title: `DUMMY-FAIL-${i}`, status: 'FAIL', created_at: new Date().toISOString() })
-  }
-  // BLOCK: 0 in list -> Add blockMax
-  for (let i = 0; i < blockMax; i++) {
-    tcs.push({ id: `tc-block-fill-${i}`, project_id: 'proj-1', title: `DUMMY-BLOCK-${i}`, status: 'BLOCK', created_at: new Date().toISOString() })
   }
   // UNTESTED: 1 in list (tc-switch-003) -> Add untestedMax
   for (let i = 0; i < untestedMax; i++) {
