@@ -5,9 +5,9 @@ import ProjectList from '@/features/project/ProjectList'
 
 // Mock Projects
 const mockProjects: Project[] = [
-  { id: 'proj-1', name: 'Mellight App', description: '멜라이트 앱 QA 검증', created_at: new Date().toISOString() },
-  { id: 'proj-2', name: 'Melatonin', description: '멜라토닌 앱 QA 검증', created_at: new Date().toISOString() },
-  { id: 'proj-3', name: '관리자 웹', description: '관리자 웹사이트 QA 검증', created_at: new Date().toISOString() }
+  { id: 'proj-1', name: 'Mellight App', description: '멜라이트 앱 QA 검증', qa: '이다은', developer: '김철수', designer: '박민준', period: '2026.05.01 ~ 2026.07.31', created_at: new Date().toISOString() },
+  { id: 'proj-2', name: 'Melatonin', description: '멜라토닌 앱 QA 검증', qa: '이다연', developer: '박지현', designer: '이수진', period: '2026.04.15 ~ 2026.08.15', created_at: new Date().toISOString() },
+  { id: 'proj-3', name: '관리자 웹', description: '관리자 웹사이트 QA 검증', qa: '이다은', developer: '이준호', designer: '김민지', period: '2026.03.10 ~ 2026.06.30', created_at: new Date().toISOString() }
 ]
 
 // Mock Category Groups (대분류)

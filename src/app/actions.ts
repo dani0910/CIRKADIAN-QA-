@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { randomUUID } from 'crypto'
 import path from 'path'
 
-export async function createProject(name: string, description?: string) {
+export async function createProject(name: string, description?: string, qa?: string, developer?: string, designer?: string, period?: string) {
   const supabase = await createClient()
 
   const { data, error } = await supabase
@@ -15,6 +15,10 @@ export async function createProject(name: string, description?: string) {
         id: randomUUID(),
         name,
         description: description || null,
+        qa: qa || null,
+        developer: developer || null,
+        designer: designer || null,
+        period: period || null,
       }
     ])
     .select()

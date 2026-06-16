@@ -19,8 +19,11 @@ const getProjectDisplayData = (project: Project) => {
       category: 'Mobile App',
       categoryColor: 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
       status: '진행 중',
-      period: '2026.05.01 ~ 진행 중',
+      period: project.period || '2026.05.01 ~ 진행 중',
       testers: '이다은, 이다연',
+      qa: project.qa || '이다은',
+      developer: project.developer || '김철수',
+      designer: project.designer || '박민준',
       icon: (
         <div className="w-12 h-12 rounded-xl bg-zinc-950 flex items-center justify-center border border-zinc-800 shrink-0">
           <svg className="w-7 h-7 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -36,8 +39,11 @@ const getProjectDisplayData = (project: Project) => {
       category: 'Mobile App',
       categoryColor: 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
       status: '진행 중',
-      period: '2026.04.15 ~ 진행 중',
+      period: project.period || '2026.04.15 ~ 진행 중',
       testers: '이다연',
+      qa: project.qa || '이다연',
+      developer: project.developer || '박지현',
+      designer: project.designer || '이수진',
       icon: (
         <div className="w-12 h-12 rounded-xl bg-zinc-950 flex items-center justify-center border border-zinc-800 shrink-0">
           <svg className="w-6 h-6 text-yellow-400" viewBox="0 0 24 24" fill="currentColor">
@@ -53,6 +59,8 @@ const getProjectDisplayData = (project: Project) => {
       category: 'Web',
       categoryColor: 'bg-purple-500/10 text-purple-400 border border-purple-500/20',
       status: '진행 중',
+      qa: project.qa || '이다은',
+      developer: project.developer || '이준호',
       period: '2026.03.10 ~ 진행 중',
       testers: '이다은',
       icon: (
@@ -75,6 +83,8 @@ const getProjectDisplayData = (project: Project) => {
       ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' 
       : 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
     status: '진행 중',
+    qa: project.qa || '이다연',
+    developer: project.developer || '개발자',
     period: `${formattedDate} ~ 진행 중`,
     testers: '이다연',
     icon: (
@@ -96,6 +106,12 @@ export default function ProjectList({ projects }: ProjectListProps) {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [newProjectName, setNewProjectName] = useState('')
   const [newProjectDesc, setNewProjectDesc] = useState('')
+  const [newProjectQA, setNewProjectQA] = useState('')
+  const [newProjectDeveloper, setNewProjectDeveloper] = useState('')
+  const [newProjectDesigner, setNewProjectDesigner] = useState('')
+  const [newProjectPeriodStart, setNewProjectPeriodStart] = useState('')
+  const [newProjectPeriodEnd, setNewProjectPeriodEnd] = useState('')
+  const [newProjectIsOngoing, setNewProjectIsOngoing] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
 
@@ -105,10 +121,29 @@ export default function ProjectList({ projects }: ProjectListProps) {
 
     setIsSubmitting(true)
     setErrorMsg('')
+    
+    // Convert YYYY-MM-DD to YYYY.MM.DD format
+    const formatDate = (dateStr: string) => {
+      if (!dateStr) return ''
+      return dateStr.replace(/-/g, '.')
+    }
+
+    const periodStr = newProjectPeriodStart && (newProjectPeriodEnd || newProjectIsOngoing)
+      ? newProjectIsOngoing
+        ? `${formatDate(newProjectPeriodStart)} ~ 진행 중`
+        : `${formatDate(newProjectPeriodStart)} ~ ${formatDate(newProjectPeriodEnd)}`
+      : null
+
     try {
-      await createProject(newProjectName, newProjectDesc)
+      await createProject(newProjectName, newProjectDesc, newProjectQA, newProjectDeveloper, newProjectDesigner, periodStr)
       setNewProjectName('')
       setNewProjectDesc('')
+      setNewProjectQA('')
+      setNewProjectDeveloper('')
+      setNewProjectDesigner('')
+      setNewProjectPeriodStart('')
+      setNewProjectPeriodEnd('')
+      setNewProjectIsOngoing(false)
       setIsAddModalOpen(false)
     } catch (err: any) {
       setErrorMsg(err.message || '프로젝트 추가 중 오류가 발생했습니다.')
@@ -252,16 +287,11 @@ export default function ProjectList({ projects }: ProjectListProps) {
                     </div>
                   </div>
 
-                  {/* Bottom line project info (period & qa lead) */}
-                  <div className="pt-3 border-t border-border-color/60 flex items-center justify-between text-[11px] text-text-muted font-medium font-sans">
+                  {/* Bottom line project info (period only) */}
+                  <div className="pt-3 border-t border-border-color/60 text-[11px] text-text-muted font-medium font-sans">
                     <div>
                       <span className="text-zinc-600 mr-1">프로젝트 기간</span>
                       <span className="text-zinc-400">{display.period}</span>
-                    </div>
-                    <div className="w-px h-3 bg-zinc-800" />
-                    <div>
-                      <span className="text-zinc-600 mr-1">담당 QA</span>
-                      <span className="text-zinc-400">{display.testers}</span>
                     </div>
                   </div>
 
@@ -294,10 +324,6 @@ export default function ProjectList({ projects }: ProjectListProps) {
                     <span className="text-zinc-600 mr-1.5">기간:</span>
                     <span className="text-zinc-400">{display.period}</span>
                   </div>
-                  <div>
-                    <span className="text-zinc-600 mr-1.5">담당:</span>
-                    <span className="text-zinc-400">{display.testers}</span>
-                  </div>
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#00BA54]/10 text-accent-green border border-[#00BA54]/20 shrink-0">
                     {display.status}
                   </span>
@@ -321,9 +347,9 @@ export default function ProjectList({ projects }: ProjectListProps) {
               </div>
             )}
             
-            <form onSubmit={handleAddProject} className="space-y-4">
+            <form onSubmit={handleAddProject} className="space-y-4 max-h-96 overflow-y-auto">
               <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">프로젝트명</label>
+                <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">프로젝트명 *</label>
                 <input
                   type="text"
                   required
@@ -337,12 +363,83 @@ export default function ProjectList({ projects }: ProjectListProps) {
               <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">설명 (선택)</label>
                 <textarea
-                  rows={3}
+                  rows={2}
                   placeholder="프로젝트 상세 설명 입력"
                   value={newProjectDesc}
                   onChange={(e) => setNewProjectDesc(e.target.value)}
                   className="w-full bg-[#090A0D] border border-border-color rounded-xl p-3 text-xs text-zinc-200 outline-none resize-none focus:border-zinc-700"
                 />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">담당 QA</label>
+                <input
+                  type="text"
+                  placeholder="예: 이다은"
+                  value={newProjectQA}
+                  onChange={(e) => setNewProjectQA(e.target.value)}
+                  className="w-full bg-[#090A0D] border border-border-color rounded-xl px-3.5 py-2.5 text-xs text-zinc-200 outline-none focus:border-zinc-700"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">담당 개발자</label>
+                <input
+                  type="text"
+                  placeholder="예: 김철수"
+                  value={newProjectDeveloper}
+                  onChange={(e) => setNewProjectDeveloper(e.target.value)}
+                  className="w-full bg-[#090A0D] border border-border-color rounded-xl px-3.5 py-2.5 text-xs text-zinc-200 outline-none focus:border-zinc-700"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">담당 디자인</label>
+                <input
+                  type="text"
+                  placeholder="예: 박민준"
+                  value={newProjectDesigner}
+                  onChange={(e) => setNewProjectDesigner(e.target.value)}
+                  className="w-full bg-[#090A0D] border border-border-color rounded-xl px-3.5 py-2.5 text-xs text-zinc-200 outline-none focus:border-zinc-700"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">프로젝트 시작일</label>
+                  <input
+                    type="date"
+                    value={newProjectPeriodStart}
+                    onChange={(e) => setNewProjectPeriodStart(e.target.value)}
+                    className="w-full bg-[#090A0D] border border-border-color rounded-xl px-3.5 py-2.5 text-xs text-zinc-200 outline-none focus:border-zinc-700 cursor-pointer"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">프로젝트 종료일</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="date"
+                      value={newProjectPeriodEnd}
+                      onChange={(e) => setNewProjectPeriodEnd(e.target.value)}
+                      disabled={newProjectIsOngoing}
+                      className="flex-1 bg-[#090A0D] border border-border-color rounded-xl px-3.5 py-2.5 text-xs text-zinc-200 outline-none focus:border-zinc-700 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    />
+                  </div>
+                  <label className="flex items-center gap-2 mt-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={newProjectIsOngoing}
+                      onChange={(e) => {
+                        setNewProjectIsOngoing(e.target.checked)
+                        if (e.target.checked) {
+                          setNewProjectPeriodEnd('')
+                        }
+                      }}
+                      className="w-4 h-4 rounded cursor-pointer accent-[#00BA54]"
+                    />
+                    <span className="text-[11px] font-semibold text-zinc-300">진행 중</span>
+                  </label>
+                </div>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2">
@@ -353,6 +450,14 @@ export default function ProjectList({ projects }: ProjectListProps) {
                   onClick={() => {
                     setIsAddModalOpen(false)
                     setErrorMsg('')
+                    setNewProjectName('')
+                    setNewProjectDesc('')
+                    setNewProjectQA('')
+                    setNewProjectDeveloper('')
+                    setNewProjectDesigner('')
+                    setNewProjectPeriodStart('')
+                    setNewProjectPeriodEnd('')
+                    setNewProjectIsOngoing(false)
                   }}
                   className="font-bold"
                 >
