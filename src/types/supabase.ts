@@ -14,18 +14,30 @@ export interface Database {
           id: string
           name: string
           description: string | null
+          qa: string | null
+          developer: string | null
+          designer: string | null
+          period: string | null
           created_at: string
         }
         Insert: {
           id?: string
           name: string
           description?: string | null
+          qa?: string | null
+          developer?: string | null
+          designer?: string | null
+          period?: string | null
           created_at?: string
         }
         Update: {
           id?: string
           name?: string
           description?: string | null
+          qa?: string | null
+          developer?: string | null
+          designer?: string | null
+          period?: string | null
           created_at?: string
         }
         Relationships: []
