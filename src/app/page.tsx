@@ -1,13 +1,13 @@
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@/utils/supabase/server'
 import DashboardStats from '@/features/dashboard/DashboardStats'
 import TestCaseList from '@/features/testcase/TestCaseList'
 import ProjectList from '@/features/project/ProjectList'
 
 // Mock Projects
 const mockProjects: Project[] = [
-  { id: 'proj-1', name: 'Mellight App', description: '멜라이트 앱 QA 검증', created_at: new Date().toISOString() },
-  { id: 'proj-2', name: 'Melatonin', description: '멜라토닌 앱 QA 검증', created_at: new Date().toISOString() },
-  { id: 'proj-3', name: '관리자 웹', description: '관리자 웹사이트 QA 검증', created_at: new Date().toISOString() }
+  { id: 'proj-1', name: 'Mellight App', description: '멜라이트 앱 QA 검증', qa: '이다은', developer: '김철수', designer: '박민준', period: '2026.05.01 ~ 2026.07.31', created_at: new Date().toISOString() },
+  { id: 'proj-2', name: 'Melatonin', description: '멜라토닌 앱 QA 검증', qa: '이다연', developer: '박지현', designer: '이수진', period: '2026.04.15 ~ 2026.08.15', created_at: new Date().toISOString() },
+  { id: 'proj-3', name: '관리자 웹', description: '관리자 웹사이트 QA 검증', qa: '이다은', developer: '이준호', designer: '김민지', period: '2026.03.10 ~ 2026.06.30', created_at: new Date().toISOString() }
 ]
 
 // Mock Category Groups (대분류)
@@ -265,35 +265,37 @@ export default async function Home({
   const selectedProject = params.project
 
   let projects: Project[] = []
+  let categoryGroups: CategoryGroup[] = []
   let testCases: TestCase[] = []
   let tcDetails: TCDetail[] = []
   
   try {
+    const supabase = await createClient()
     const { data: dbProjects } = await supabase.from('projects').select('*')
-    if (dbProjects && dbProjects.length > 0) {
+    if (dbProjects) {
       projects = dbProjects as Project[]
-    } else {
-      projects = mockProjects
+    }
+
+    const { data: dbGroups } = await supabase
+      .from('category_groups')
+      .select('*')
+      .eq('project_id', selectedProject || '')
+      .order('created_at', { ascending: true })
+    if (dbGroups) {
+      categoryGroups = dbGroups as CategoryGroup[]
     }
 
     const { data: dbTestCases } = await supabase.from('test_cases').select('*')
-    if (dbTestCases && dbTestCases.length > 0) {
+    if (dbTestCases) {
       testCases = dbTestCases as TestCase[]
-    } else {
-      testCases = generateMockTestCases(selectedProject || 'proj-1')
     }
 
     const { data: dbDetails } = await supabase.from('tc_details').select('*')
-    if (dbDetails && dbDetails.length > 0) {
+    if (dbDetails) {
       tcDetails = dbDetails as TCDetail[]
-    } else {
-      tcDetails = mockTCDetails
     }
   } catch (err) {
-    console.error('Failed to load database records, displaying mock data', err)
-    projects = mockProjects
-    testCases = generateMockTestCases(selectedProject || 'proj-1')
-    tcDetails = mockTCDetails
+    console.error('Failed to load database records', err)
   }
 
   // Filter testcases if loaded from DB
@@ -309,21 +311,10 @@ export default async function Home({
   return (
     <div className="space-y-10 max-w-6xl mx-auto">
       
-      {/* Introduction */}
-      <div>
-        <h1 className="text-3xl font-black text-white tracking-tight">QA 대시보드 및 테스트 케이스</h1>
-        <p className="text-sm text-text-muted mt-1">
-          Supabase로부터 데이터를 조회하고 각 기능별 하위 피처 모듈로 props를 배분하는 App Router 서버 컴포넌트입니다.
-        </p>
-      </div>
 
       {/* Developer A Area (Dashboard & Statistics) */}
       <section className="space-y-4">
-        <div className="flex items-center gap-2">
-          <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-accent-green font-mono border border-emerald-500/20">개발자 A</span>
-          <span className="text-xs font-mono text-zinc-500">src/features/dashboard/</span>
-        </div>
-        <DashboardStats projects={projects} testCases={testCases} selectedProjectId={selectedProject || 'proj-1'} />
+        <DashboardStats projects={projects} testCases={testCases} selectedProjectId={selectedProject || 'proj-1'} categoryGroups={categoryGroups} />
       </section>
 
       {/* Divider */}
@@ -331,11 +322,7 @@ export default async function Home({
 
       {/* Developer B Area (Test Case Accordion & Image Upload) */}
       <section className="space-y-4">
-        <div className="flex items-center gap-2">
-          <span className="px-2 py-0.5 rounded text-[10px] bg-red-500/10 text-accent-red font-mono border border-red-500/20">개발자 B</span>
-          <span className="text-xs font-mono text-zinc-500">src/features/testcase/</span>
-        </div>
-        <TestCaseList categoryGroups={mockCategoryGroups} testCases={testCases} tcDetails={tcDetails} />
+        <TestCaseList projectId={selectedProject} categoryGroups={categoryGroups} testCases={testCases} tcDetails={tcDetails} />
       </section>
       
     </div>
