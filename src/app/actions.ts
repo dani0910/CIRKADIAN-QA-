@@ -161,8 +161,10 @@ export async function createTestCase(params: {
   revalidatePath('/')
 }
 
-export async function createCategoryGroup(projectId: string, title: string) {
+export async function createCategoryGroup(projectId: string, title: string, testCategory?: string) {
   const supabase = await createClient()
+
+  const finalTitle = testCategory?.trim() ? `${title.trim()}|||${testCategory.trim()}` : title.trim()
 
   const { data, error } = await supabase
     .from('category_groups')
@@ -170,7 +172,7 @@ export async function createCategoryGroup(projectId: string, title: string) {
       {
         id: randomUUID(),
         project_id: projectId,
-        title,
+        title: finalTitle,
       }
     ])
     .select()
@@ -446,6 +448,147 @@ export async function deleteProject(projectId: string) {
 
   if (projectDeleteError) {
     throw new Error(`Failed to delete project: ${projectDeleteError.message}`)
+  }
+
+  revalidatePath('/')
+}
+
+export async function updateCategoryGroup(groupId: string, title: string, testCategory?: string) {
+  const supabase = await createClient()
+
+  const finalTitle = testCategory?.trim() ? `${title.trim()}|||${testCategory.trim()}` : title.trim()
+
+  const { error } = await supabase
+    .from('category_groups')
+    .update({
+      title: finalTitle
+    })
+    .eq('id', groupId)
+
+  if (error) {
+    throw new Error(`Failed to update category group: ${error.message}`)
+  }
+
+  revalidatePath('/')
+}
+
+export async function deleteCategoryGroup(groupId: string) {
+  const supabase = await createClient()
+
+  // 1. Fetch test cases of the category group to delete their details
+  const { data: testCases, error: fetchError } = await supabase
+    .from('test_cases')
+    .select('id')
+    .eq('group_id', groupId)
+
+  if (fetchError) {
+    throw new Error(`Failed to fetch test cases for category deletion: ${fetchError.message}`)
+  }
+
+  // 2. Delete tc_details for those test cases
+  if (testCases && testCases.length > 0) {
+    const tcIds = testCases.map(tc => tc.id)
+    const { error: detailsDeleteError } = await supabase
+      .from('tc_details')
+      .delete()
+      .in('id', tcIds)
+    
+    if (detailsDeleteError) {
+      throw new Error(`Failed to delete test case details: ${detailsDeleteError.message}`)
+    }
+  }
+
+  // 3. Delete test_cases
+  const { error: tcDeleteError } = await supabase
+    .from('test_cases')
+    .delete()
+    .eq('group_id', groupId)
+
+  if (tcDeleteError) {
+    throw new Error(`Failed to delete test cases: ${tcDeleteError.message}`)
+  }
+
+  // 4. Delete category group itself
+  const { error: groupDeleteError } = await supabase
+    .from('category_groups')
+    .delete()
+    .eq('id', groupId)
+
+  if (groupDeleteError) {
+    throw new Error(`Failed to delete category group: ${groupDeleteError.message}`)
+  }
+
+  revalidatePath('/')
+}
+
+export async function updateTestCase(params: {
+  id: string
+  title: string
+  groupId?: string
+  tcCode?: string
+  tags?: string[]
+  tester?: string
+  steps?: string[]
+  prerequisites?: string[]
+  expectedResult?: string
+}) {
+  const supabase = await createClient()
+
+  // 1. Update test_cases
+  const { error: tcError } = await supabase
+    .from('test_cases')
+    .update({
+      title: params.title,
+      group_id: params.groupId || null,
+      tc_code: params.tcCode || null,
+      tags: params.tags || null,
+      tester: params.tester || '이다연'
+    })
+    .eq('id', params.id)
+
+  if (tcError) {
+    throw new Error(`Failed to update testcase: ${tcError.message}`)
+  }
+
+  // 2. Update tc_details
+  const { error: detailError } = await supabase
+    .from('tc_details')
+    .update({
+      steps: params.steps || [],
+      prerequisites: params.prerequisites || [],
+      expected_result: params.expectedResult || null,
+      testers: params.tester || '이다연'
+    })
+    .eq('id', params.id)
+
+  if (detailError) {
+    throw new Error(`Failed to update testcase details: ${detailError.message}`)
+  }
+
+  revalidatePath('/')
+}
+
+export async function deleteTestCase(tcId: string) {
+  const supabase = await createClient()
+
+  // 1. Delete details first
+  const { error: detailError } = await supabase
+    .from('tc_details')
+    .delete()
+    .eq('id', tcId)
+
+  if (detailError) {
+    throw new Error(`Failed to delete testcase details: ${detailError.message}`)
+  }
+
+  // 2. Delete testcase
+  const { error: tcError } = await supabase
+    .from('test_cases')
+    .delete()
+    .eq('id', tcId)
+
+  if (tcError) {
+    throw new Error(`Failed to delete testcase: ${tcError.message}`)
   }
 
   revalidatePath('/')

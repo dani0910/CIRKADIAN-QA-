@@ -15,6 +15,7 @@ declare global {
   interface CategoryGroup {
     id: string
     title: string
+    test_category?: string
   }
 
   interface TestCase {

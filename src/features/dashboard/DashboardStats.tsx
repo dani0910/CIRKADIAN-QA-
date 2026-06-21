@@ -7,11 +7,7 @@ import { deleteProject, updateProjectMetadata } from "@/app/actions";
 import { parseProjectDescription } from "@/utils/project";
 import { Button } from "@/components/ui/Button";
 
-const versionsByProject: Record<string, string[]> = {
-  "proj-1": ["v1.2.4 (412)", "v1.2.3 (411)", "v1.2.2 (410)", "v1.2.1 (409)"],
-  "proj-2": ["v2.1.0 (501)", "v2.0.9 (500)", "v2.0.8 (499)"],
-  "proj-3": ["v1.0.5 (302)", "v1.0.4 (301)", "v1.0.3 (300)"],
-};
+const versionsByProject: Record<string, string[]> = {};
 
 interface DashboardStatsProps {
   projects: Project[];
@@ -28,7 +24,6 @@ export default function DashboardStats({
 }: DashboardStatsProps) {
   // Filter test cases based on selection
   const router = useRouter();
-  const [isProjectOpen, setIsProjectOpen] = useState(false);
   const [isVersionOpen, setIsVersionOpen] = useState(false);
   const [selectedVersion, setSelectedVersion] = useState<string>("");
   const [versionOptions, setVersionOptions] = useState<string[]>([]);
@@ -78,45 +73,11 @@ export default function DashboardStats({
     const formattedDate = currentProject?.created_at
       ? new Date(currentProject.created_at).toLocaleDateString("ko-KR")
       : new Date().toLocaleDateString("ko-KR");
-    const fallbackPeriod =
-      selectedProjectId === "proj-1"
-        ? "2026.05.01 ~ 진행 중"
-        : selectedProjectId === "proj-2"
-          ? "2026.04.15 ~ 진행 중"
-          : selectedProjectId === "proj-3"
-            ? "2026.03.10 ~ 진행 중"
-            : `${formattedDate} ~ 진행 중`;
+    const fallbackPeriod = `${formattedDate} ~ 진행 중`;
 
-    setEditQA(
-      projectMeta.qa ||
-        (selectedProjectId === "proj-1"
-          ? "이다은"
-          : selectedProjectId === "proj-2"
-            ? "이다연"
-            : selectedProjectId === "proj-3"
-              ? "이다은"
-              : ""),
-    );
-    setEditDeveloper(
-      projectMeta.developer ||
-        (selectedProjectId === "proj-1"
-          ? "김철수"
-          : selectedProjectId === "proj-2"
-            ? "박지현"
-            : selectedProjectId === "proj-3"
-              ? "이준호"
-              : ""),
-    );
-    setEditDesigner(
-      projectMeta.designer ||
-        (selectedProjectId === "proj-1"
-          ? "박민준"
-          : selectedProjectId === "proj-2"
-            ? "이수진"
-            : selectedProjectId === "proj-3"
-              ? "김민지"
-              : ""),
-    );
+    setEditQA(projectMeta.qa || "");
+    setEditDeveloper(projectMeta.developer || "");
+    setEditDesigner(projectMeta.designer || "");
     setEditPeriod(projectMeta.period || fallbackPeriod);
     setEditDescription(
       projectMeta.description || currentProject?.description || "",
@@ -171,12 +132,6 @@ export default function DashboardStats({
     }
   }, [selectedProjectId, versionOptions]);
 
-  const handleProjectSelect = (id: string | null) => {
-    setIsProjectOpen(false);
-    if (id) {
-      router.push(`/?project=${id}`);
-    }
-  };
 
   const handleAddVersion = async () => {
     if (!newVersionValue.trim()) return;
@@ -285,7 +240,7 @@ export default function DashboardStats({
               : 0;
           topPercent = val1;
 
-          let label = group.title;
+          let label = group.title.split('|||')[0];
           if (label.includes(".")) {
             const parts = label.split(".");
             if (
@@ -306,14 +261,7 @@ export default function DashboardStats({
             val2,
           };
         })
-      : [
-          { label: "연결/BLE", topPercent: 85, val1: 85, val2: 15 },
-          { label: "알람", topPercent: 72, val1: 72, val2: 28 },
-          { label: "조명 제어", topPercent: 68, val1: 68, val2: 32 },
-          { label: "권한", topPercent: 75, val1: 75, val2: 25 },
-          { label: "설정", topPercent: 81, val1: 81, val2: 19 },
-          { label: "기타", topPercent: 67, val1: 67, val2: 33 },
-        ];
+      : [];
 
   const osCounts = filteredCases.reduce(
     (acc, tc) => {
@@ -339,11 +287,7 @@ export default function DashboardStats({
             ? [{ label: "Other", count: osCounts.Other, color: "#8f8f9e" }]
             : []),
         ]
-      : [
-          { label: "iOS", count: 258, color: "#4f8bff" },
-          { label: "Android", count: 242, color: "#26c26a" },
-          { label: "Web", count: 12, color: "#6c7cff" },
-        ];
+      : [];
 
   const issueTotal = Math.max(failCount, 1);
   const issueOpen = Math.round(issueTotal * 0.55);
@@ -371,43 +315,19 @@ export default function DashboardStats({
   const qaName =
     meta.qa ||
     currentProject?.qa ||
-    (selectedProjectId === "proj-1"
-      ? "이다은"
-      : selectedProjectId === "proj-2"
-        ? "이다연"
-        : selectedProjectId === "proj-3"
-          ? "이다은"
-          : "담당자 미지정");
+    "담당자 미지정";
   const devName =
     meta.developer ||
     currentProject?.developer ||
-    (selectedProjectId === "proj-1"
-      ? "김철수"
-      : selectedProjectId === "proj-2"
-        ? "박지현"
-        : selectedProjectId === "proj-3"
-          ? "이준호"
-          : "담당자 미지정");
+    "담당자 미지정";
   const designerName =
     meta.designer ||
     currentProject?.designer ||
-    (selectedProjectId === "proj-1"
-      ? "박민준"
-      : selectedProjectId === "proj-2"
-        ? "이수진"
-        : selectedProjectId === "proj-3"
-          ? "김민지"
-          : "담당자 미지정");
+    "담당자 미지정";
   const periodText =
     meta.period ||
     currentProject?.period ||
-    (selectedProjectId === "proj-1"
-      ? "2026.05.01 ~ 진행 중"
-      : selectedProjectId === "proj-2"
-        ? "2026.04.15 ~ 진행 중"
-        : selectedProjectId === "proj-3"
-          ? "2026.03.10 ~ 진행 중"
-          : `${formattedDate} ~ 진행 중`);
+    `${formattedDate} ~ 진행 중`;
 
   return (
     <div className="space-y-4">
@@ -415,50 +335,10 @@ export default function DashboardStats({
       <div className="flex flex-col md:flex-row md:items-start justify-between gap-3 border-b border-border-color pb-4">
         <div className="space-y-2.5">
           <div className="flex flex-wrap items-center gap-3">
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setIsProjectOpen(!isProjectOpen)}
-                className="inline-flex items-center gap-2 text-2xl md:text-3xl font-black text-white tracking-tight"
-              >
-                <span>
-                  {projects.find((p) => p.id === selectedProjectId)?.name ||
-                    "Mellight App"}
-                </span>
-                <span className="text-zinc-400 text-xs">▼</span>
-              </button>
-
-              {isProjectOpen && (
-                <>
-                  <div
-                    className="fixed inset-0 z-40"
-                    onClick={() => setIsProjectOpen(false)}
-                  />
-                  <div className="absolute left-0 mt-3 w-60 rounded-2xl bg-[#090A0D] border border-[#222631] shadow-2xl py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
-                    <div className="px-3 py-2 text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
-                      프로젝트 전환
-                    </div>
-                    {projects.map((proj) => (
-                      <button
-                        key={proj.id}
-                        type="button"
-                        onClick={() => handleProjectSelect(proj.id)}
-                        className={`w-full text-left px-4 py-2 text-xs font-semibold flex items-center justify-between transition cursor-pointer hover:bg-zinc-800 ${
-                          selectedProjectId === proj.id
-                            ? "text-[#00BA54] bg-[#00BA54]/5"
-                            : "text-zinc-300"
-                        }`}
-                      >
-                        <span>{proj.name}</span>
-                        {selectedProjectId === proj.id && (
-                          <span className="text-[#00BA54] text-[10px]">●</span>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
+            <h1 className="text-2xl md:text-3xl font-black text-white tracking-tight">
+              {projects.find((p) => p.id === selectedProjectId)?.name ||
+                "Mellight App"}
+            </h1>
 
             <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${
               meta.status === '완료' 
