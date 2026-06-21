@@ -1,0 +1,365 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-bottom: 1px solid var(--border-color, #222631);
+  padding-bottom: 1rem;
+}
+
+@media (min-width: 768px) {
+  .container {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+}
+
+.leftArea {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.titleWrapper {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.projectDropdownContainer {
+  position: relative;
+}
+
+.projectDropdownBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.5rem;
+  font-weight: 900;
+  color: #fff;
+  letter-spacing: -0.025em;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+@media (min-width: 768px) {
+  .projectDropdownBtn {
+    font-size: 1.875rem;
+  }
+}
+
+.projectDropdownMenu {
+  position: absolute;
+  left: 0;
+  margin-top: 0.75rem;
+  width: 15rem;
+  border-radius: 1rem;
+  background-color: #090A0D;
+  border: 1px solid #222631;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.55);
+  padding: 0.5rem 0;
+  z-index: 50;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.dropdownTitle {
+  padding: 0.5rem 0.75rem;
+  font-size: 10px;
+  font-weight: 700;
+  color: #71717a;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.dropdownItem {
+  width: 100%;
+  text-align: left;
+  padding: 0.5rem 1rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: all 0.2s;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.dropdownItem:hover {
+  background-color: #27272a;
+}
+
+.dropdownItemActive {
+  color: #00BA54;
+  background-color: rgba(0, 186, 84, 0.05);
+}
+
+.dropdownItemInactive {
+  color: #d4d4d8;
+}
+
+.activeDot {
+  color: #00BA54;
+  font-size: 10px;
+}
+
+.statusBadge {
+  padding: 0.125rem 0.625rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border-width: 1px;
+}
+
+.statusComplete {
+  background-color: rgba(0, 186, 84, 0.1);
+  color: #00BA54;
+  border-color: rgba(0, 186, 84, 0.2);
+}
+
+.statusNotStarted {
+  background-color: #27272a;
+  color: #a1a1aa;
+  border-color: #3f3f46;
+}
+
+.statusOngoing {
+  background-color: rgba(59, 130, 246, 0.1);
+  color: #60a5fa;
+  border-color: rgba(59, 130, 246, 0.2);
+}
+
+.metaInfoList {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  font-size: 0.75rem;
+  color: #a1a1aa;
+  font-weight: 500;
+}
+
+.metaItem {
+  display: flex;
+  align-items: center;
+}
+
+.metaLabel {
+  color: #52525b;
+  margin-right: 0.5rem;
+}
+
+.metaValue {
+  font-weight: 600;
+  color: #d4d4d8;
+}
+
+.verticalDivider {
+  width: 1px;
+  height: 1rem;
+  background-color: #3f3f46;
+}
+
+.editBtn {
+  font-size: 11px;
+  font-weight: 700;
+  color: #62ABAB;
+  background-color: #151821;
+  border: 1px solid #222631;
+  border-radius: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.editBtn:hover {
+  color: #4d9999;
+}
+
+.editIcon {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+.rightArea {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  align-self: flex-start;
+}
+
+.versionDropdownContainer {
+  position: relative;
+}
+
+.versionDropdownBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid #222631;
+  background-color: #151821;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #62ABAB;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.versionDropdownBtn:hover {
+  background-color: #27272a;
+}
+
+.versionDropdownMenu {
+  position: absolute;
+  right: 0;
+  margin-top: 0.5rem;
+  width: 14rem;
+  border-radius: 0.75rem;
+  background-color: #090A0D;
+  border: 1px solid #222631;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.55);
+  padding: 0.5rem 0;
+  z-index: 50;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.versionItem {
+  width: 100%;
+  text-align: left;
+  padding: 0.5rem 1rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: all 0.2s;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.versionItem:hover {
+  background-color: #27272a;
+}
+
+.versionItemActive {
+  color: #62ABAB;
+  background-color: rgba(98, 171, 171, 0.1);
+}
+
+.versionItemInactive {
+  color: #d4d4d8;
+}
+
+.activeVersionDot {
+  color: #62ABAB;
+  font-size: 10px;
+}
+
+.addVersionWrapper {
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.addVersionInput {
+  width: 100%;
+  border-radius: 0.5rem;
+  border: 1px solid #222631;
+  background-color: #090A0D;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  color: #fff;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.addVersionInput:focus {
+  border-color: #62ABAB;
+  box-shadow: 0 0 0 2px rgba(98, 171, 171, 0.2);
+}
+
+.addVersionActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.addBtn, .cancelBtn {
+  flex: 1;
+  border-radius: 0.5rem;
+  padding: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+}
+
+.addBtn {
+  background-color: #62ABAB;
+  color: #020617;
+}
+
+.addBtn:hover {
+  background-color: #4d9999;
+}
+
+.cancelBtn {
+  background-color: #151821;
+  border: 1px solid #222631;
+  color: #d4d4d8;
+}
+
+.cancelBtn:hover {
+  background-color: #27272a;
+}
+
+.menuDivider {
+  border-top: 1px solid #222631;
+  margin: 0.25rem 0;
+}
+
+.addVersionTrigger {
+  width: 100%;
+  text-align: left;
+  padding: 0.5rem 1rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #62ABAB;
+  transition: all 0.2s;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.addVersionTrigger:hover {
+  background-color: #27272a;
+}
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
