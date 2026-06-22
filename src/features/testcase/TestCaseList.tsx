@@ -41,6 +41,20 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
   
   const [expandedTestCases, setExpandedTestCases] = useState<Record<string, boolean>>({})
+  const [activeTcId, setActiveTcId] = useState<string | null>(null)
+  const [showImageViewer, setShowImageViewer] = useState<boolean>(false)
+  const [zoomLevel, setZoomLevel] = useState<number>(100)
+  const [rotationAngle, setRotationAngle] = useState<number>(0)
+
+  useEffect(() => {
+    setZoomLevel(100)
+    setRotationAngle(0)
+  }, [activeTcId])
+
+  useEffect(() => {
+    setActiveTcId(null)
+    setShowImageViewer(false)
+  }, [projectId])
 
   // Comments, image gallery switcher, and uploads states mapped by TestCase ID
   const [commentsState, setCommentsState] = useState<Record<string, { author: string; role: string; text: string; date: string }[]>>(() => {
@@ -425,7 +439,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
   }
 
   const toggleTestCase = (tcId: string) => {
-    setExpandedTestCases(prev => ({ ...prev, [tcId]: !prev[tcId] }))
+    setActiveTcId(prev => prev === tcId ? null : tcId)
   }
 
   const updateStatus = async (id: string, newStatus: TestCaseStatus) => {
