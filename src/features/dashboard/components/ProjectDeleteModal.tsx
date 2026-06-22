@@ -2,7 +2,7 @@
 
 import React from "react";
 import { Button } from "@/components/ui/Button";
-import styles from "./ProjectDeleteModal.module.css";
+import styles from "../css/ProjectDeleteModal.module.css";
 
 interface ProjectDeleteModalProps {
   isDeleteModalOpen: boolean;

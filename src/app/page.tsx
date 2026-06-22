@@ -57,12 +57,12 @@ export default async function Home({
   }
 
   return (
-    <div className="space-y-10 max-w-6xl mx-auto">
+    <div className="space-y-10 w-full max-w-[1440px] mx-auto px-4 sm:px-6">
       
 
       {/* Developer A Area (Dashboard & Statistics) */}
       <section className="space-y-4">
-        <DashboardStats projects={projects} testCases={testCases} selectedProjectId={selectedProject || 'proj-1'} categoryGroups={categoryGroups} />
+        <DashboardStats projects={projects} testCases={testCases} selectedProjectId={selectedProject || 'proj-1'} categoryGroups={categoryGroups} tcDetails={tcDetails} />
       </section>
 
       {/* Divider */}

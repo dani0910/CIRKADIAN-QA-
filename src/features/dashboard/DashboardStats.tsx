@@ -13,6 +13,7 @@ interface DashboardStatsProps {
   testCases: TestCase[];
   selectedProjectId: string;
   categoryGroups: CategoryGroup[];
+  tcDetails: TCDetail[];
 }
 
 export default function DashboardStats({
@@ -20,6 +21,7 @@ export default function DashboardStats({
   testCases,
   selectedProjectId,
   categoryGroups,
+  tcDetails,
 }: DashboardStatsProps) {
   const stats = useDashboardStats({
     projects,
@@ -34,6 +36,9 @@ export default function DashboardStats({
       <DashboardHeader
         projects={projects}
         selectedProjectId={selectedProjectId}
+        isProjectOpen={stats.isProjectOpen}
+        setIsProjectOpen={stats.setIsProjectOpen}
+        handleProjectSelect={stats.handleProjectSelect}
         meta={stats.meta}
         periodText={stats.periodText}
         qaName={stats.qaName}
@@ -47,6 +52,9 @@ export default function DashboardStats({
         selectedVersion={stats.selectedVersion}
         setSelectedVersion={stats.setSelectedVersion}
         versionOptions={stats.versionOptions}
+        testCases={testCases}
+        categoryGroups={categoryGroups}
+        tcDetails={tcDetails}
         newVersionValue={stats.newVersionValue}
         setNewVersionValue={stats.setNewVersionValue}
         handleAddVersion={stats.handleAddVersion}

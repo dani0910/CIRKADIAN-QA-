@@ -170,10 +170,10 @@
   background-color: #151821;
   border: 1px solid #222631;
   border-radius: 0.5rem;
-  padding: 0.25rem 0.5rem;
+  padding: 0.35rem;
   display: flex;
   align-items: center;
-  gap: 0.25rem;
+  justify-content: center;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -185,6 +185,68 @@
 .editIcon {
   width: 0.75rem;
   height: 0.75rem;
+}
+
+.exportDropdownContainer {
+  position: relative;
+}
+
+.exportBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 0.5rem;
+  border: 1px solid #222631;
+  background-color: #151821;
+  padding: 0.35rem 0.65rem;
+  font-size: 11px;
+  font-weight: 700;
+  color: #d4d4d8;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.exportBtn:hover {
+  color: #ffffff;
+  border-color: #3f3f46;
+  background-color: #1c202b;
+}
+
+.exportArrow {
+  color: #62ABAB;
+  font-size: 9px;
+}
+
+.exportDropdownMenu {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 0.5rem);
+  width: 10.5rem;
+  border-radius: 0.75rem;
+  background-color: #090A0D;
+  border: 1px solid #222631;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.55);
+  padding: 0.4rem 0;
+  z-index: 50;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.exportItem {
+  width: 100%;
+  text-align: left;
+  padding: 0.55rem 0.8rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #d4d4d8;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.exportItem:hover {
+  color: #62ABAB;
+  background-color: #151821;
 }
 
 .rightArea {

@@ -100,6 +100,8 @@ export async function createTestCase(params: {
   tags?: string[]
   os?: string
   tester?: string
+  executionDate?: string
+  device?: string
   steps?: string[]
   prerequisites?: string[]
   expectedResult?: string
@@ -122,6 +124,7 @@ export async function createTestCase(params: {
           tags: params.tags || null,
           os: os,
           tester: params.tester || '이다연',
+          execution_date: params.executionDate || null,
           title: params.title,
           status: 'UNTESTED',
         }
@@ -145,9 +148,9 @@ export async function createTestCase(params: {
           evidence_urls: [],
           comments: [],
           app_version: '',
-          device: '',
+          device: params.device || '',
           testers: params.tester || '이다연',
-          execution_date: '',
+          execution_date: params.executionDate || '',
         }
       ])
 
