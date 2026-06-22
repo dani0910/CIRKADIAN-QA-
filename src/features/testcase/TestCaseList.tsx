@@ -4,7 +4,23 @@ import React, { useState, useEffect, useRef } from 'react'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { supabase } from '@/lib/supabase'
-import { createTestCase, createCategoryGroup, updateTestCaseResult, uploadTestCaseEvidence, addTestCaseComment, updateOpinionText } from '@/app/actions'
+import { createTestCase, createCategoryGroup, updateTestCaseResult, uploadTestCaseEvidence, addTestCaseComment, updateOpinionText, updateCategoryGroup, deleteCategoryGroup, updateTestCase, deleteTestCase } from '@/app/actions'
+
+const getPastelColor = (str: string) => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % 5;
+  const pastelColors = [
+    'bg-[#1d2433] text-[#7fb7ff] border border-[#2d3a54]/50', // pastel blue
+    'bg-[#241a2f] text-[#d6bdfa] border border-[#3b2d4c]/50', // pastel purple
+    'bg-[#132725] text-[#86ebd4] border border-[#1e3b38]/50', // pastel teal
+    'bg-[#2b2015] text-[#ffc482] border border-[#443322]/50', // pastel orange/peach
+    'bg-[#2b1b22] text-[#ffb5cd] border border-[#4c2d3a]/50'  // pastel pink
+  ];
+  return pastelColors[index];
+};
 
 interface TestCaseListProps {
   projectId: string
@@ -22,14 +38,9 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
   
   // Expanded states for groups (Parent level) and test cases (Child level)
   // Initially expand group-a and group-b, and case tc-scan-004 to matches the screenshots perfectly.
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
-    'group-a': true,
-    'group-b': true
-  })
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
   
-  const [expandedTestCases, setExpandedTestCases] = useState<Record<string, boolean>>({
-    'tc-scan-004': true
-  })
+  const [expandedTestCases, setExpandedTestCases] = useState<Record<string, boolean>>({})
 
   // Comments, image gallery switcher, and uploads states mapped by TestCase ID
   const [commentsState, setCommentsState] = useState<Record<string, { author: string; role: string; text: string; date: string }[]>>(() => {
@@ -194,7 +205,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
   const [newGroupId, setNewGroupId] = useState(categoryGroups[0]?.id || '')
   const [newTcCode, setNewTcCode] = useState('')
   const [newTags, setNewTags] = useState('')
-  const [newTester, setNewTester] = useState('이다연')
+  const [newTester, setNewTester] = useState('')
   const [newSteps, setNewSteps] = useState('')
   const [newPrereqs, setNewPrereqs] = useState('')
   const [newExpected, setNewExpected] = useState('')
@@ -204,8 +215,34 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
   // Modal states for adding Category Group
   const [isAddGroupModalOpen, setIsAddGroupModalOpen] = useState(false)
   const [newGroupTitle, setNewGroupTitle] = useState('')
+  const [categorySelectType, setCategorySelectType] = useState('HW')
+  const [newGroupTestCategory, setNewGroupTestCategory] = useState('')
   const [isAddingGroup, setIsAddingGroup] = useState(false)
   const [groupErrorMsg, setGroupErrorMsg] = useState('')
+
+  // Edit mode global state
+  const [isEditMode, setIsEditMode] = useState(false)
+
+  // Edit Category Group modal states
+  const [editingGroup, setEditingGroup] = useState<CategoryGroup | null>(null)
+  const [editGroupTitle, setEditGroupTitle] = useState('')
+  const [editGroupCategoryType, setEditGroupCategoryType] = useState('HW')
+  const [editGroupCustomCategory, setEditGroupCustomCategory] = useState('')
+  const [isSavingGroup, setIsSavingGroup] = useState(false)
+  const [editGroupErrorMsg, setEditGroupErrorMsg] = useState('')
+
+  // Edit Test Case modal states
+  const [editingTestCase, setEditingTestCase] = useState<TestCase | null>(null)
+  const [editTcTitle, setEditTcTitle] = useState('')
+  const [editTcGroupId, setEditTcGroupId] = useState('')
+  const [editTcCode, setEditTcCode] = useState('')
+  const [editTcTags, setEditTcTags] = useState('')
+  const [editTcTester, setEditTcTester] = useState('')
+  const [editTcSteps, setEditTcSteps] = useState('')
+  const [editTcPrereqs, setEditTcPrereqs] = useState('')
+  const [editTcExpected, setEditTcExpected] = useState('')
+  const [isSavingTestCase, setIsSavingTestCase] = useState(false)
+  const [editTcErrorMsg, setEditTcErrorMsg] = useState('')
 
   useEffect(() => {
     if (categoryGroups.length > 0) {
@@ -220,18 +257,126 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
     }
   }, [categoryGroups, newGroupId])
 
+  // Category Group handlers
+  const handleStartEditGroup = (group: CategoryGroup) => {
+    setEditingGroup(group)
+    setEditGroupErrorMsg('')
+    const parts = group.title.split('|||')
+    const displayTitle = parts[0]
+    const testCategory = parts[1] || 'HW'
+
+    setEditGroupTitle(displayTitle)
+    if (['HW', 'SW', '공통'].includes(testCategory)) {
+      setEditGroupCategoryType(testCategory)
+      setEditGroupCustomCategory('')
+    } else {
+      setEditGroupCategoryType('custom')
+      setEditGroupCustomCategory(testCategory)
+    }
+  }
+
+  const handleEditCategoryGroup = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editingGroup || !editGroupTitle.trim()) return
+
+    const selectedTestCategory = editGroupCategoryType === 'custom' ? editGroupCustomCategory.trim() : editGroupCategoryType
+
+    setIsSavingGroup(true)
+    setEditGroupErrorMsg('')
+    try {
+      await updateCategoryGroup(editingGroup.id, editGroupTitle, selectedTestCategory)
+      setEditingGroup(null)
+    } catch (err: any) {
+      setEditGroupErrorMsg(err.message || '기능 분류 수정 중 오류가 발생했습니다.')
+    } finally {
+      setIsSavingGroup(false)
+    }
+  }
+
+  const handleDeleteGroup = async (groupId: string) => {
+    const confirmed = window.confirm('정말로 이 기능 분류와 하위의 모든 테스트 케이스를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')
+    if (!confirmed) return
+
+    try {
+      await deleteCategoryGroup(groupId)
+    } catch (err: any) {
+      alert(err.message || '기능 분류 삭제 중 오류가 발생했습니다.')
+    }
+  }
+
+  // TestCase handlers
+  const handleStartEditTestCase = (tc: TestCase) => {
+    setEditingTestCase(tc)
+    setEditTcErrorMsg('')
+    const detail = tcDetails.find(d => d.id === tc.id)
+
+    setEditTcTitle(tc.title || '')
+    setEditTcGroupId(tc.group_id || '')
+    setEditTcCode(tc.tc_code || '')
+    setEditTcTags(tc.tags ? tc.tags.join(', ') : '')
+    setEditTcTester(tc.tester || '')
+    setEditTcSteps(detail?.steps ? detail.steps.join('\n') : '')
+    setEditTcPrereqs(detail?.prerequisites ? detail.prerequisites.join('\n') : '')
+    setEditTcExpected(detail?.expected_result || '')
+  }
+
+  const handleEditTestCase = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editingTestCase || !editTcTitle.trim()) return
+
+    setIsSavingTestCase(true)
+    setEditTcErrorMsg('')
+    try {
+      const parsedSteps = editTcSteps.split('\n').map(s => s.trim()).filter(Boolean)
+      const parsedPrereqs = editTcPrereqs.split('\n').map(p => p.trim()).filter(Boolean)
+      const parsedTags = editTcTags.split(',').map(t => t.trim()).filter(Boolean)
+
+      await updateTestCase({
+        id: editingTestCase.id,
+        title: editTcTitle,
+        groupId: editTcGroupId || undefined,
+        tcCode: editTcCode || undefined,
+        tags: parsedTags.length > 0 ? parsedTags : undefined,
+        tester: editTcTester || undefined,
+        steps: parsedSteps,
+        prerequisites: parsedPrereqs,
+        expectedResult: editTcExpected || undefined
+      })
+      setEditingTestCase(null)
+    } catch (err: any) {
+      setEditTcErrorMsg(err.message || '테스트 케이스 수정 중 오류가 발생했습니다.')
+    } finally {
+      setIsSavingTestCase(false)
+    }
+  }
+
+  const handleDeleteTestCase = async (tcId: string) => {
+    const confirmed = window.confirm('정말로 이 테스트 케이스를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')
+    if (!confirmed) return
+
+    try {
+      await deleteTestCase(tcId)
+    } catch (err: any) {
+      alert(err.message || '테스트 케이스 삭제 중 오류가 발생했습니다.')
+    }
+  }
+
   const handleAddCategoryGroup = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!newGroupTitle.trim()) return
 
+    const selectedTestCategory = categorySelectType === 'custom' ? newGroupTestCategory.trim() : categorySelectType
+
     setIsAddingGroup(true)
     setGroupErrorMsg('')
     try {
-      await createCategoryGroup(projectId, newGroupTitle)
+      await createCategoryGroup(projectId, newGroupTitle, selectedTestCategory)
       setNewGroupTitle('')
+      setNewGroupTestCategory('')
+      setCategorySelectType('HW')
       setIsAddGroupModalOpen(false)
     } catch (err: any) {
-      setGroupErrorMsg(err.message || '대분류 추가 중 오류가 발생했습니다.')
+      setGroupErrorMsg(err.message || '기능 분류 추가 중 오류가 발생했습니다.')
     } finally {
       setIsAddingGroup(false)
     }
@@ -439,12 +584,16 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
 
   // Filter Category groups
   const filteredGroups = categoryGroups.filter(group => {
-    // Search query matching group title
-    if (searchQuery && group.title.toLowerCase().includes(searchQuery.toLowerCase())) {
+    const parts = group.title.split('|||')
+    const displayTitle = parts[0]
+    const testCategory = parts[1] || ''
+
+    // Search query matching group title or test category
+    if (searchQuery && (displayTitle.toLowerCase().includes(searchQuery.toLowerCase()) || testCategory.toLowerCase().includes(searchQuery.toLowerCase()))) {
       return true
     }
     // Matching categories
-    if (selectedCategory !== 'all' && !group.title.includes(selectedCategory)) {
+    if (selectedCategory !== 'all' && !displayTitle.includes(selectedCategory) && !testCategory.includes(selectedCategory)) {
       return false
     }
     return true
@@ -455,14 +604,12 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
     const styles = {
       PASS: 'bg-[#00BA54]/10 text-accent-green border border-[#00BA54]/20',
       FAIL: 'bg-[#DE3A3A]/10 text-[#DE3A3A] border border-[#DE3A3A]/20',
-      BLOCK: 'bg-yellow-500/10 text-yellow-500 border border-yellow-500/20',
       UNTESTED: 'bg-zinc-800 text-zinc-400 border border-zinc-700'
     }
 
     const labels = {
       PASS: 'PASS',
       FAIL: 'FAIL',
-      BLOCK: 'BLOCK',
       UNTESTED: '미실시'
     }
 
@@ -480,13 +627,23 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold text-white tracking-tight">전체 테스트 케이스</h2>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsEditMode(!isEditMode)}
+            className={`flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl border transition-all cursor-pointer outline-none ${
+              isEditMode 
+                ? 'border-[#00BA54] text-[#00BA54] bg-[#00BA54]/10 hover:bg-[#00BA54]/20 shadow-lg shadow-[#00BA54]/10' 
+                : 'border-[#222631] text-zinc-400 bg-[#151821] hover:bg-zinc-800 hover:text-zinc-200'
+            }`}
+          >
+            <span>{isEditMode ? '✓ 수정 완료' : '✏️ 수정 모드'}</span>
+          </button>
           <Button 
             variant="outline" 
             size="md" 
             className="flex items-center gap-1.5 font-bold hover:border-accent-green hover:text-accent-green cursor-pointer"
             onClick={() => setIsAddGroupModalOpen(true)}
           >
-            <span>+</span> 대분류 추가
+            <span>+</span> 기능 분류 추가
           </Button>
           <Button 
             variant="primary" 
@@ -519,19 +676,6 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              className="bg-card-bg border border-border-color rounded-xl px-3 py-2 text-xs font-bold text-zinc-300 outline-none cursor-pointer hover:border-zinc-700"
-            >
-              <option value="all">기능 영역 전체</option>
-              <option value="BLE">BLE / 페어링</option>
-              <option value="기기전환">기기 전환</option>
-              <option value="동기화">동기화</option>
-              <option value="통신">통신</option>
-              <option value="예외 처리">예외 처리</option>
-            </select>
 
             <select
               value={selectedStatus}
@@ -567,9 +711,9 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
         {filteredGroups.length === 0 ? (
           <div className="border border-dashed border-border-color rounded-2xl p-10 text-center bg-card-bg/5 space-y-3">
             <div className="text-zinc-600 text-3xl select-none">📂</div>
-            <h3 className="text-sm font-bold text-zinc-300">등록된 대분류가 없습니다</h3>
+            <h3 className="text-sm font-bold text-zinc-300">등록된 기능 분류가 없습니다</h3>
             <p className="text-xs text-text-muted max-w-sm mx-auto leading-relaxed">
-              이 프로젝트에 등록된 테스트 케이스 대분류가 없습니다. 우측 상단의 <strong>'+ 대분류 추가'</strong> 버튼을 클릭하여 테스트 진행 영역을 분류해 보세요.
+              이 프로젝트에 등록된 테스트 케이스 기능 분류가 없습니다. 우측 상단의 <strong>'+ 기능 분류 추가'</strong> 버튼을 클릭하여 테스트 진행 영역을 분류해 보세요.
             </p>
           </div>
         ) : (
@@ -609,8 +753,43 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                 onClick={() => toggleGroup(group.id)}
                 className="flex items-center justify-between px-5 py-4 bg-[#090A0D]/80 cursor-pointer select-none border-b border-border-color/60 hover:bg-[#151821]/30 transition-all"
               >
-                <span className="text-sm font-black text-zinc-100 tracking-tight">{group.title}</span>
+                <div className="flex items-center gap-3">
+                  {/* Test Category Badge */}
+                  {group.title.includes('|||') && (() => {
+                    const testCategory = group.title.split('|||')[1]?.trim()
+                    if (!testCategory) return null
+                    
+                    const badgeStyle = getPastelColor(testCategory)
+                    
+                    return (
+                      <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded text-[10px] font-extrabold ${badgeStyle}`}>
+                        {testCategory}
+                      </span>
+                    )
+                  })()}
+                  <span className="text-sm font-black text-zinc-100 tracking-tight">
+                    {group.title.split('|||')[0]}
+                  </span>
+                </div>
                 <div className="flex items-center gap-3 font-mono text-xs">
+                  {isEditMode && (
+                    <div className="flex items-center gap-1.5 mr-2" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => handleStartEditGroup(group)}
+                        className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition text-[10px] font-bold cursor-pointer border border-[#222631]"
+                        title="대분류 수정"
+                      >
+                        ✏️ 수정
+                      </button>
+                      <button
+                        onClick={() => handleDeleteGroup(group.id)}
+                        className="px-2 py-1 rounded bg-red-950/40 hover:bg-red-900/60 text-red-400 transition text-[10px] font-bold cursor-pointer border border-red-900/20"
+                        title="대분류 삭제"
+                      >
+                        🗑️ 삭제
+                      </button>
+                    </div>
+                  )}
                   <span className="text-zinc-500 font-bold">{passCount}/{totalCount} PASS</span>
                   <span className={`text-[9px] text-zinc-600 transition-transform duration-200 ${isGroupExpanded ? 'rotate-180' : ''}`}>
                     ▼
@@ -676,6 +855,24 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                                 {tc.execution_date && <span>실행일: {tc.execution_date}</span>}
                                 {tc.os && <span className="text-zinc-600 font-mono">OS: {tc.os}</span>}
                               </div>
+                              {isEditMode && (
+                                <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                  <button
+                                    onClick={() => handleStartEditTestCase(tc)}
+                                    className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition text-[10px] font-bold cursor-pointer border border-[#222631]"
+                                    title="테스트케이스 수정"
+                                  >
+                                    ✏️ 수정
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteTestCase(tc.id)}
+                                    className="px-2 py-1 rounded bg-red-950/40 hover:bg-red-900/60 text-red-400 transition text-[10px] font-bold cursor-pointer border border-red-900/20"
+                                    title="테스트케이스 삭제"
+                                  >
+                                    🗑️ 삭제
+                                  </button>
+                                </div>
+                              )}
                               <span className={`text-[8px] text-zinc-600 transition-transform duration-200 shrink-0 ${isCaseExpanded ? 'rotate-180' : ''}`}>
                                 ▼
                               </span>
@@ -712,14 +909,12 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                                   </div>
                                   <div className="bg-[#090A0D]/50 border border-border-color rounded-xl p-4.5 space-y-3.5">
                                     {detail?.steps.map((step, idx) => {
-                                      const stepStatus = detail.step_statuses?.[idx] || 'UNTESTED'
                                       return (
                                         <div key={idx} className="flex items-start justify-between gap-4">
                                           <div className="flex items-start gap-2.5 text-zinc-300 leading-relaxed">
                                             <span className="font-bold text-accent-green font-mono">{idx + 1}.</span>
                                             <span>{step}</span>
                                           </div>
-                                          <Badge status={stepStatus as TestCaseStatus} className="text-[10px] scale-90 select-none shrink-0" />
                                         </div>
                                       )
                                     })}
@@ -933,6 +1128,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                                 <div className="pt-2 border-t border-zinc-900 flex flex-col gap-1.5">
                                   <Button variant="outline" size="sm" className="hover:border-accent-green hover:text-accent-green w-full" onClick={() => updateStatus(tc.id, 'PASS')}>PASS 로 판정 완료</Button>
                                   <Button variant="outline" size="sm" className="hover:border-accent-red hover:text-accent-red w-full" onClick={() => updateStatus(tc.id, 'FAIL')}>FAIL 로 판정 완료</Button>
+                                  <Button variant="outline" size="sm" className="hover:border-zinc-500 hover:text-zinc-300 w-full" onClick={() => updateStatus(tc.id, 'UNTESTED')}>미실시 상태로 변경</Button>
                                   
                                   <div className="grid grid-cols-2 gap-2 mt-1">
                                     <button
@@ -1070,7 +1266,9 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                       <option value="">(대분류를 먼저 생성해 주세요)</option>
                     ) : (
                       categoryGroups.map(g => (
-                        <option key={g.id} value={g.id}>{g.title}</option>
+                        <option key={g.id} value={g.id}>
+                          {g.title.includes('|||') ? `${g.title.split('|||')[0]} [${g.title.split('|||')[1]}]` : g.title}
+                        </option>
                       ))
                     )}
                   </select>
@@ -1192,6 +1390,34 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                 />
               </div>
 
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">테스트 카테고리 (Test Category)</label>
+                <select
+                  value={categorySelectType}
+                  onChange={(e) => setCategorySelectType(e.target.value)}
+                  className="w-full bg-[#090A0D] border border-border-color rounded-xl px-3 py-2.5 text-xs text-zinc-300 outline-none cursor-pointer focus:border-zinc-700"
+                >
+                  <option value="HW">HW</option>
+                  <option value="SW">SW</option>
+                  <option value="공통">공통</option>
+                  <option value="custom">직접 입력</option>
+                </select>
+              </div>
+
+              {categorySelectType === 'custom' && (
+                <div className="space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-150">
+                  <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">카테고리 직접 입력</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="예: BLE, 기기 전환, 동기화, 통신"
+                    value={newGroupTestCategory}
+                    onChange={(e) => setNewGroupTestCategory(e.target.value)}
+                    className="w-full bg-[#090A0D] border border-border-color rounded-xl px-3.5 py-2.5 text-xs text-zinc-200 outline-none focus:border-zinc-700"
+                  />
+                </div>
+              )}
+
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-border-color mt-4">
                 <Button
                   type="button"
@@ -1210,6 +1436,237 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                   className="font-bold shadow-lg shadow-accent-green/20"
                 >
                   {isAddingGroup ? '추가 중...' : '대분류 생성'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 6. Edit Category Group Modal */}
+      {editingGroup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md bg-[#11131c] border border-border-color rounded-2xl p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-border-color pb-3 mb-4">
+              <h3 className="text-lg font-black text-white">대분류 수정</h3>
+              <button 
+                onClick={() => setEditingGroup(null)}
+                className="text-zinc-500 hover:text-zinc-300 text-sm cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+            
+            {editGroupErrorMsg && (
+              <div className="bg-red-500/10 border border-red-500/20 text-[#DE3A3A] px-3.5 py-2.5 rounded-xl text-xs mb-4">
+                {editGroupErrorMsg}
+              </div>
+            )}
+            
+            <form onSubmit={handleEditCategoryGroup} className="space-y-4 text-left">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">대분류명 (Title)</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="예: 5-2-F. 신규 네트워크 및 BLE 테스트"
+                  value={editGroupTitle}
+                  onChange={(e) => setEditGroupTitle(e.target.value)}
+                  className="w-full bg-[#090A0D] border border-border-color rounded-xl px-3.5 py-2.5 text-xs text-zinc-200 outline-none focus:border-zinc-700"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">테스트 카테고리 (Test Category)</label>
+                <select
+                  value={editGroupCategoryType}
+                  onChange={(e) => setEditGroupCategoryType(e.target.value)}
+                  className="w-full bg-[#090A0D] border border-border-color rounded-xl px-3 py-2.5 text-xs text-zinc-300 outline-none cursor-pointer focus:border-zinc-700"
+                >
+                  <option value="HW">HW</option>
+                  <option value="SW">SW</option>
+                  <option value="공통">공통</option>
+                  <option value="custom">직접 입력</option>
+                </select>
+              </div>
+
+              {editGroupCategoryType === 'custom' && (
+                <div className="space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-150">
+                  <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">카테고리 직접 입력</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="예: BLE, 기기 전환, 동기화, 통신"
+                    value={editGroupCustomCategory}
+                    onChange={(e) => setEditGroupCustomCategory(e.target.value)}
+                    className="w-full bg-[#090A0D] border border-border-color rounded-xl px-3.5 py-2.5 text-xs text-zinc-200 outline-none focus:border-zinc-700"
+                  />
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-border-color mt-4">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setEditingGroup(null)}
+                  className="font-bold"
+                >
+                  취소
+                </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  disabled={isSavingGroup}
+                  className="font-bold shadow-lg shadow-accent-green/20"
+                >
+                  {isSavingGroup ? '저장 중...' : '변경사항 저장'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 7. Edit TestCase Modal */}
+      {editingTestCase && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="w-full max-w-xl bg-[#11131c] border border-border-color rounded-2xl p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200 my-8">
+            <div className="flex items-center justify-between border-b border-border-color pb-3 mb-4">
+              <h3 className="text-lg font-black text-white">테스트 케이스 수정</h3>
+              <button 
+                onClick={() => setEditingTestCase(null)}
+                className="text-zinc-500 hover:text-zinc-300 text-sm cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+            
+            {editTcErrorMsg && (
+              <div className="bg-red-500/10 border border-red-500/20 text-[#DE3A3A] px-3.5 py-2.5 rounded-xl text-xs mb-4">
+                {editTcErrorMsg}
+              </div>
+            )}
+            
+            <form onSubmit={handleEditTestCase} className="space-y-4 text-left">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5 col-span-2">
+                  <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">테스트 항목명 (Title)</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="예: 다중 램프 동시 스캔 및 식별 검증"
+                    value={editTcTitle}
+                    onChange={(e) => setEditTcTitle(e.target.value)}
+                    className="w-full bg-[#090A0D] border border-border-color rounded-xl px-3.5 py-2.5 text-xs text-zinc-200 outline-none focus:border-zinc-700"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">대분류 (Category Group)</label>
+                  <select
+                    value={editTcGroupId}
+                    onChange={(e) => setEditTcGroupId(e.target.value)}
+                    className="w-full bg-[#090A0D] border border-border-color rounded-xl px-3 py-2.5 text-xs text-zinc-300 outline-none cursor-pointer focus:border-zinc-700"
+                  >
+                    {categoryGroups.length === 0 ? (
+                      <option value="">(대분류를 먼저 생성해 주세요)</option>
+                    ) : (
+                      categoryGroups.map(g => (
+                        <option key={g.id} value={g.id}>
+                          {g.title.includes('|||') ? `${g.title.split('|||')[0]} [${g.title.split('|||')[1]}]` : g.title}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">TC 코드</label>
+                  <input
+                    type="text"
+                    placeholder="예: INT-SCAN-005"
+                    value={editTcCode}
+                    onChange={(e) => setEditTcCode(e.target.value)}
+                    className="w-full bg-[#090A0D] border border-border-color rounded-xl px-3.5 py-2.5 text-xs text-zinc-200 outline-none focus:border-zinc-700 font-mono"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">태그 (쉼표구분)</label>
+                  <input
+                    type="text"
+                    placeholder="예: 페어링, UX 개선"
+                    value={editTcTags}
+                    onChange={(e) => setEditTcTags(e.target.value)}
+                    className="w-full bg-[#090A0D] border border-border-color rounded-xl px-3.5 py-2.5 text-xs text-zinc-200 outline-none focus:border-zinc-700"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">담당 테스터</label>
+                  <input
+                    type="text"
+                    placeholder="예: 이다연"
+                    value={editTcTester}
+                    onChange={(e) => setEditTcTester(e.target.value)}
+                    className="w-full bg-[#090A0D] border border-border-color rounded-xl px-3.5 py-2.5 text-xs text-zinc-200 outline-none focus:border-zinc-700"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">사전 조건 (라인구분)</label>
+                <textarea
+                  rows={2}
+                  placeholder="예: 두 대 이상의 스마트폰에 앱 설치 확인"
+                  value={editTcPrereqs}
+                  onChange={(e) => setEditTcPrereqs(e.target.value)}
+                  className="w-full bg-[#090A0D] border border-border-color rounded-xl p-3 text-xs text-zinc-200 outline-none resize-none focus:border-zinc-700"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">테스트 절차 (라인구분)</label>
+                <textarea
+                  rows={3}
+                  placeholder="예: 스마트폰 A에서 스캔 시작"
+                  value={editTcSteps}
+                  onChange={(e) => setEditTcSteps(e.target.value)}
+                  className="w-full bg-[#090A0D] border border-border-color rounded-xl p-3 text-xs text-zinc-200 outline-none resize-none focus:border-zinc-700"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">예상 결과</label>
+                <input
+                  type="text"
+                  placeholder="예: 선택한 램프와 즉시 통신 세션이 연결됩니다."
+                  value={editTcExpected}
+                  onChange={(e) => setEditTcExpected(e.target.value)}
+                  className="w-full bg-[#090A0D] border border-border-color rounded-xl px-3.5 py-2.5 text-xs text-zinc-200 outline-none focus:border-zinc-700"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-border-color mt-4">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setEditingTestCase(null)}
+                  className="font-bold"
+                >
+                  취소
+                </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  disabled={isSavingTestCase}
+                  className="font-bold shadow-lg shadow-accent-green/20"
+                >
+                  {isSavingTestCase ? '저장 중...' : '변경사항 저장'}
                 </Button>
               </div>
             </form>

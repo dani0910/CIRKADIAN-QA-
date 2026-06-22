@@ -5,15 +5,28 @@ import { revalidatePath } from 'next/cache'
 import { randomUUID } from 'crypto'
 import path from 'path'
 
+import { parseProjectDescription } from '@/utils/project'
+
 export async function createProject(
   name: string,
   description?: string | null,
   qa?: string | null,
   developer?: string | null,
   designer?: string | null,
-  period?: string | null
+  period?: string | null,
+  status?: string | null
 ) {
   const supabase = await createClient()
+
+  const metaData = {
+    description: description || '',
+    qa: qa || '',
+    developer: developer || '',
+    designer: designer || '',
+    period: period || '',
+    versions: [],
+    status: status || '진행 중'
+  }
 
   const { data, error } = await supabase
     .from('projects')
@@ -21,11 +34,7 @@ export async function createProject(
       {
         id: randomUUID(),
         name,
-        description: description || null,
-        qa: qa || null,
-        developer: developer || null,
-        designer: designer || null,
-        period: period || null,
+        description: JSON.stringify(metaData)
       }
     ])
     .select()
@@ -36,6 +45,51 @@ export async function createProject(
 
   revalidatePath('/')
   return data[0]
+}
+
+export async function updateProjectMetadata(projectId: string, meta: {
+  description?: string
+  qa?: string
+  developer?: string
+  designer?: string
+  period?: string
+  versions?: string[]
+  status?: string
+}) {
+  const supabase = await createClient()
+
+  // 1. Fetch current description
+  const { data: project, error: fetchError } = await supabase
+    .from('projects')
+    .select('description')
+    .eq('id', projectId)
+    .single()
+
+  if (fetchError) {
+    throw new Error(`Failed to fetch project for metadata update: ${fetchError.message}`)
+  }
+
+  const currentMeta = parseProjectDescription(project.description)
+  const nextMeta = {
+    description: meta.description !== undefined ? meta.description : currentMeta.description,
+    qa: meta.qa !== undefined ? meta.qa : currentMeta.qa,
+    developer: meta.developer !== undefined ? meta.developer : currentMeta.developer,
+    designer: meta.designer !== undefined ? meta.designer : currentMeta.designer,
+    period: meta.period !== undefined ? meta.period : currentMeta.period,
+    versions: meta.versions !== undefined ? meta.versions : currentMeta.versions,
+    status: meta.status !== undefined ? meta.status : currentMeta.status
+  }
+
+  const { error: updateError } = await supabase
+    .from('projects')
+    .update({ description: JSON.stringify(nextMeta) })
+    .eq('id', projectId)
+
+  if (updateError) {
+    throw new Error(`Failed to update project metadata: ${updateError.message}`)
+  }
+
+  revalidatePath('/')
 }
 
 export async function createTestCase(params: {
@@ -107,8 +161,10 @@ export async function createTestCase(params: {
   revalidatePath('/')
 }
 
-export async function createCategoryGroup(projectId: string, title: string) {
+export async function createCategoryGroup(projectId: string, title: string, testCategory?: string) {
   const supabase = await createClient()
+
+  const finalTitle = testCategory?.trim() ? `${title.trim()}|||${testCategory.trim()}` : title.trim()
 
   const { data, error } = await supabase
     .from('category_groups')
@@ -116,7 +172,7 @@ export async function createCategoryGroup(projectId: string, title: string) {
       {
         id: randomUUID(),
         project_id: projectId,
-        title,
+        title: finalTitle,
       }
     ])
     .select()
@@ -130,7 +186,7 @@ export async function createCategoryGroup(projectId: string, title: string) {
 }
 
 export async function updateTestCaseResult(tcId: string, params: {
-  status?: 'PASS' | 'FAIL' | 'UNTESTED' | 'BLOCK'
+  status?: 'PASS' | 'FAIL' | 'UNTESTED'
   tags?: string[] | null
   actualResult?: string | null
   evidenceUrls?: string[]
@@ -336,4 +392,204 @@ export async function updateOpinionText(tcId: string, type: 'refinement' | 'poli
 
   revalidatePath('/')
   return nextComments;
+}
+
+export async function deleteProject(projectId: string) {
+  const supabase = await createClient()
+
+  // 1. Fetch test cases of the project to delete their details
+  const { data: testCases, error: fetchError } = await supabase
+    .from('test_cases')
+    .select('id')
+    .eq('project_id', projectId)
+
+  if (fetchError) {
+    throw new Error(`Failed to fetch project test cases for deletion: ${fetchError.message}`)
+  }
+
+  // 2. Delete tc_details for those test cases
+  if (testCases && testCases.length > 0) {
+    const tcIds = testCases.map(tc => tc.id)
+    const { error: detailsDeleteError } = await supabase
+      .from('tc_details')
+      .delete()
+      .in('id', tcIds)
+    
+    if (detailsDeleteError) {
+      throw new Error(`Failed to delete project test case details: ${detailsDeleteError.message}`)
+    }
+  }
+
+  // 3. Delete test_cases
+  const { error: tcDeleteError } = await supabase
+    .from('test_cases')
+    .delete()
+    .eq('project_id', projectId)
+
+  if (tcDeleteError) {
+    throw new Error(`Failed to delete project test cases: ${tcDeleteError.message}`)
+  }
+
+  // 4. Delete category_groups
+  const { error: groupDeleteError } = await supabase
+    .from('category_groups')
+    .delete()
+    .eq('project_id', projectId)
+
+  if (groupDeleteError) {
+    throw new Error(`Failed to delete project categories: ${groupDeleteError.message}`)
+  }
+
+  // 5. Delete project itself
+  const { error: projectDeleteError } = await supabase
+    .from('projects')
+    .delete()
+    .eq('id', projectId)
+
+  if (projectDeleteError) {
+    throw new Error(`Failed to delete project: ${projectDeleteError.message}`)
+  }
+
+  revalidatePath('/')
+}
+
+export async function updateCategoryGroup(groupId: string, title: string, testCategory?: string) {
+  const supabase = await createClient()
+
+  const finalTitle = testCategory?.trim() ? `${title.trim()}|||${testCategory.trim()}` : title.trim()
+
+  const { error } = await supabase
+    .from('category_groups')
+    .update({
+      title: finalTitle
+    })
+    .eq('id', groupId)
+
+  if (error) {
+    throw new Error(`Failed to update category group: ${error.message}`)
+  }
+
+  revalidatePath('/')
+}
+
+export async function deleteCategoryGroup(groupId: string) {
+  const supabase = await createClient()
+
+  // 1. Fetch test cases of the category group to delete their details
+  const { data: testCases, error: fetchError } = await supabase
+    .from('test_cases')
+    .select('id')
+    .eq('group_id', groupId)
+
+  if (fetchError) {
+    throw new Error(`Failed to fetch test cases for category deletion: ${fetchError.message}`)
+  }
+
+  // 2. Delete tc_details for those test cases
+  if (testCases && testCases.length > 0) {
+    const tcIds = testCases.map(tc => tc.id)
+    const { error: detailsDeleteError } = await supabase
+      .from('tc_details')
+      .delete()
+      .in('id', tcIds)
+    
+    if (detailsDeleteError) {
+      throw new Error(`Failed to delete test case details: ${detailsDeleteError.message}`)
+    }
+  }
+
+  // 3. Delete test_cases
+  const { error: tcDeleteError } = await supabase
+    .from('test_cases')
+    .delete()
+    .eq('group_id', groupId)
+
+  if (tcDeleteError) {
+    throw new Error(`Failed to delete test cases: ${tcDeleteError.message}`)
+  }
+
+  // 4. Delete category group itself
+  const { error: groupDeleteError } = await supabase
+    .from('category_groups')
+    .delete()
+    .eq('id', groupId)
+
+  if (groupDeleteError) {
+    throw new Error(`Failed to delete category group: ${groupDeleteError.message}`)
+  }
+
+  revalidatePath('/')
+}
+
+export async function updateTestCase(params: {
+  id: string
+  title: string
+  groupId?: string
+  tcCode?: string
+  tags?: string[]
+  tester?: string
+  steps?: string[]
+  prerequisites?: string[]
+  expectedResult?: string
+}) {
+  const supabase = await createClient()
+
+  // 1. Update test_cases
+  const { error: tcError } = await supabase
+    .from('test_cases')
+    .update({
+      title: params.title,
+      group_id: params.groupId || null,
+      tc_code: params.tcCode || null,
+      tags: params.tags || null,
+      tester: params.tester || '이다연'
+    })
+    .eq('id', params.id)
+
+  if (tcError) {
+    throw new Error(`Failed to update testcase: ${tcError.message}`)
+  }
+
+  // 2. Update tc_details
+  const { error: detailError } = await supabase
+    .from('tc_details')
+    .update({
+      steps: params.steps || [],
+      prerequisites: params.prerequisites || [],
+      expected_result: params.expectedResult || null,
+      testers: params.tester || '이다연'
+    })
+    .eq('id', params.id)
+
+  if (detailError) {
+    throw new Error(`Failed to update testcase details: ${detailError.message}`)
+  }
+
+  revalidatePath('/')
+}
+
+export async function deleteTestCase(tcId: string) {
+  const supabase = await createClient()
+
+  // 1. Delete details first
+  const { error: detailError } = await supabase
+    .from('tc_details')
+    .delete()
+    .eq('id', tcId)
+
+  if (detailError) {
+    throw new Error(`Failed to delete testcase details: ${detailError.message}`)
+  }
+
+  // 2. Delete testcase
+  const { error: tcError } = await supabase
+    .from('test_cases')
+    .delete()
+    .eq('id', tcId)
+
+  if (tcError) {
+    throw new Error(`Failed to delete testcase: ${tcError.message}`)
+  }
+
+  revalidatePath('/')
 }
