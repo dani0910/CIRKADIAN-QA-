@@ -34,9 +34,6 @@ export default function DashboardStats({
       <DashboardHeader
         projects={projects}
         selectedProjectId={selectedProjectId}
-        isProjectOpen={stats.isProjectOpen}
-        setIsProjectOpen={stats.setIsProjectOpen}
-        handleProjectSelect={stats.handleProjectSelect}
         meta={stats.meta}
         periodText={stats.periodText}
         qaName={stats.qaName}

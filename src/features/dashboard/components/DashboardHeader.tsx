@@ -6,9 +6,6 @@ import styles from "../css/DashboardHeader.module.css";
 interface DashboardHeaderProps {
   projects: Project[];
   selectedProjectId: string;
-  isProjectOpen: boolean;
-  setIsProjectOpen: (open: boolean) => void;
-  handleProjectSelect: (id: string | null) => void;
   meta: any;
   periodText: string;
   qaName: string;
@@ -30,9 +27,6 @@ interface DashboardHeaderProps {
 export function DashboardHeader({
   projects,
   selectedProjectId,
-  isProjectOpen,
-  setIsProjectOpen,
-  handleProjectSelect,
   meta,
   periodText,
   qaName,
@@ -62,48 +56,10 @@ export function DashboardHeader({
       {/* Left side: Project title, status, meta info */}
       <div className={styles.leftArea}>
         <div className={styles.titleWrapper}>
-          <div className={styles.projectDropdownContainer}>
-            <button
-              type="button"
-              onClick={() => setIsProjectOpen(!isProjectOpen)}
-              className={styles.projectDropdownBtn}
-            >
-              <span>
-                {projects.find((p) => p.id === selectedProjectId)?.name ||
-                  "Mellight App"}
-              </span>
-              <span className="text-zinc-400 text-xs">▼</span>
-            </button>
-
-            {isProjectOpen && (
-              <>
-                <div
-                  className={styles.backdrop}
-                  onClick={() => setIsProjectOpen(false)}
-                />
-                <div className={styles.projectDropdownMenu}>
-                  <div className={styles.dropdownTitle}>프로젝트 전환</div>
-                  {projects.map((proj) => (
-                    <button
-                      key={proj.id}
-                      type="button"
-                      onClick={() => handleProjectSelect(proj.id)}
-                      className={`${styles.dropdownItem} ${
-                        selectedProjectId === proj.id
-                          ? styles.dropdownItemActive
-                          : styles.dropdownItemInactive
-                      }`}
-                    >
-                      <span>{proj.name}</span>
-                      {selectedProjectId === proj.id && (
-                        <span className={styles.activeDot}>●</span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
+          <h1 className={styles.projectTitle}>
+            {projects.find((p) => p.id === selectedProjectId)?.name ||
+              "Mellight App"}
+          </h1>
 
           <span
             className={`${styles.statusBadge} ${getStatusClass(meta.status)}`}

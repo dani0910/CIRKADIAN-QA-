@@ -12,78 +12,26 @@ interface ProjectListProps {
 
 // Helper to map DB projects to display assets
 const getProjectDisplayData = (project: Project) => {
-  const name = project.name
-  const id = project.id
-  
   // Parse description metadata
   const meta = parseProjectDescription(project.description || null)
   
-  // Base display assets mapping
-  let category = 'App'
-  let categoryColor = 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-  let testers = '이다연'
-  let icon = (
+  const icon = (
     <div className="w-12 h-12 rounded-xl bg-zinc-950 flex items-center justify-center border border-zinc-800 shrink-0">
       <svg className="w-6 h-6 text-cyan-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
       </svg>
     </div>
   )
-
-  if (id === 'proj-1' || name === 'Mellight App') {
-    category = 'Mobile App'
-    categoryColor = 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-    testers = '이다은, 이다연'
-    icon = (
-      <div className="w-12 h-12 rounded-xl bg-zinc-950 flex items-center justify-center border border-zinc-800 shrink-0">
-        <svg className="w-7 h-7 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m12.728 12.728l.707-.707M12 7a5 5 0 100 10 5 5 0 000-10z" />
-        </svg>
-      </div>
-    )
-  } else if (id === 'proj-2' || name === 'Melatonin') {
-    category = 'Mobile App'
-    categoryColor = 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-    testers = '이다연'
-    icon = (
-      <div className="w-12 h-12 rounded-xl bg-zinc-950 flex items-center justify-center border border-zinc-800 shrink-0">
-        <svg className="w-6 h-6 text-yellow-400" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-        </svg>
-      </div>
-    )
-  } else if (id === 'proj-3' || name === '관리자 웹') {
-    category = 'Web'
-    categoryColor = 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
-    testers = '이다은'
-    icon = (
-      <div className="w-12 h-12 rounded-xl bg-zinc-950 flex items-center justify-center border border-zinc-800 shrink-0">
-        <svg className="w-6 h-6 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-          <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-        </svg>
-      </div>
-    )
-  }
-
-  // Fallback for user-created dynamic database records
-  const isWeb = name.toLowerCase().includes('web') || name.includes('웹')
-  if (isWeb) {
-    category = 'Web'
-    categoryColor = 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
-  }
   
   const formattedDate = project.created_at ? new Date(project.created_at).toLocaleDateString('ko-KR') : new Date().toLocaleDateString('ko-KR')
 
   return {
-    category,
-    categoryColor,
     status: meta.status || '진행 중',
-    qa: meta.qa || project.qa || (id === 'proj-1' ? '이다은' : id === 'proj-2' ? '이다연' : id === 'proj-3' ? '이다은' : '담당자 미지정'),
-    developer: meta.developer || project.developer || (id === 'proj-1' ? '김철수' : id === 'proj-2' ? '박지현' : id === 'proj-3' ? '이준호' : '담당자 미지정'),
-    designer: meta.designer || project.designer || (id === 'proj-1' ? '박민준' : id === 'proj-2' ? '이수진' : id === 'proj-3' ? '김민지' : '담당자 미지정'),
-    period: meta.period || project.period || (id === 'proj-1' ? '2026.05.01 ~ 진행 중' : id === 'proj-2' ? '2026.04.15 ~ 진행 중' : id === 'proj-3' ? '2026.03.10 ~ 진행 중' : `${formattedDate} ~ 진행 중`),
-    testers: testers,
+    qa: meta.qa || project.qa || '담당자 미지정',
+    developer: meta.developer || project.developer || '담당자 미지정',
+    designer: meta.designer || project.designer || '담당자 미지정',
+    period: meta.period || project.period || `${formattedDate} ~ 진행 중`,
+    testers: meta.qa || project.qa || '담당자 미지정',
     icon: icon
   }
 }
@@ -189,14 +137,6 @@ export default function ProjectList({ projects }: ProjectListProps) {
           <p className="text-sm text-text-muted">진행 중인 프로젝트의 QA 현황을 한눈에 확인하세요.</p>
         </div>
         <div className="flex items-center gap-4.5 self-start md:self-auto shrink-0 text-xs">
-          <span className="text-zinc-500 font-medium flex items-center gap-1.5 font-mono">
-            마지막 업데이트 2026.06.10 12:30
-            <button className="text-zinc-500 hover:text-zinc-300 cursor-pointer">
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 8H18.75" />
-              </svg>
-            </button>
-          </span>
           <Button 
             variant="primary" 
             className="font-bold shadow-lg shadow-accent-green/20"
@@ -284,9 +224,6 @@ export default function ProjectList({ projects }: ProjectListProps) {
                         <h3 className="font-bold text-base text-zinc-100 group-hover:text-white transition">
                           {proj.name}
                         </h3>
-                        <span className={`inline-block px-2 py-0.5 mt-1 rounded text-[9px] font-bold ${display.categoryColor}`}>
-                          {display.category}
-                        </span>
                       </div>
                     </div>
                     
@@ -345,9 +282,6 @@ export default function ProjectList({ projects }: ProjectListProps) {
                   {display.icon}
                   <div>
                     <h3 className="font-bold text-sm text-zinc-100">{proj.name}</h3>
-                    <span className={`inline-block px-1.5 py-0.2 rounded text-[8px] font-bold mt-1 ${display.categoryColor}`}>
-                      {display.category}
-                    </span>
                   </div>
                 </div>
                 <div className="flex items-center gap-6 text-[11px] text-zinc-500 font-sans font-medium">
