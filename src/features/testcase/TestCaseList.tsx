@@ -26,6 +26,49 @@ const stripAuthorPrefix = (value: string | null | undefined) => {
   return (value || '').replace(/^\[[^\]]+\]\s*/, '')
 }
 
+const PencilIcon = ({ className = 'h-3.5 w-3.5' }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+    <path d="M12 20h9" />
+    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+  </svg>
+)
+
+const TrashIcon = ({ className = 'h-3.5 w-3.5' }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+    <path d="M3 6h18" />
+    <path d="M8 6V4h8v2" />
+    <path d="M19 6l-1 14H6L5 6" />
+    <path d="M10 11v5" />
+    <path d="M14 11v5" />
+  </svg>
+)
+
+const EditActionButton = ({
+  type,
+  title,
+  onClick,
+}: {
+  type: 'edit' | 'delete'
+  title: string
+  onClick: () => void
+}) => (
+  <button
+    onClick={onClick}
+    className={`inline-flex h-7 w-7 items-center justify-center rounded-lg border transition cursor-pointer ${
+      type === 'delete'
+        ? 'border-zinc-800 bg-[#151821] text-zinc-500 hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-300'
+        : 'border-zinc-800 bg-[#151821] text-zinc-400 hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100'
+    }`}
+    title={title}
+    aria-label={title}
+  >
+    {type === 'delete' ? <TrashIcon /> : <PencilIcon />}
+  </button>
+)
+
+const DECISION_TAGS = ['정책 확인 필요', '개선 필요', 'BUG', 'UX ISSUE']
+type FailType = 'BUG' | 'UX ISSUE'
+
 interface TestCaseListProps {
   projectId: string
   categoryGroups: CategoryGroup[]
@@ -203,6 +246,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
   const [selectedStatus, setSelectedStatus] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState<string>('')
+  const [pendingFailTcId, setPendingFailTcId] = useState<string | null>(null)
 
   // Modal states for adding TestCase
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
@@ -461,35 +505,31 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
     })
   }
 
-  const updateStatus = async (id: string, newStatus: TestCaseStatus) => {
-    setTestCases(prev => prev.map(tc => tc.id === id ? { ...tc, status: newStatus } : tc))
+  const getDecisionTags = (tags: string[] | undefined, extraTags: string[] = []) => {
+    const currentTags = tags || []
+    return [...currentTags.filter(tag => !DECISION_TAGS.includes(tag)), ...extraTags]
+  }
+
+  const updateStatus = async (id: string, newStatus: TestCaseStatus, extraTags: string[] = []) => {
+    const target = testCases.find(tc => tc.id === id)
+    const nextTags = getDecisionTags(target?.tags, extraTags)
+
+    setTestCases(prev => prev.map(tc => tc.id === id ? { ...tc, status: newStatus, tags: nextTags } : tc))
     
     try {
-      await updateTestCaseResult(id, { status: newStatus })
+      await updateTestCaseResult(id, { status: newStatus, tags: nextTags })
     } catch (err) {
       console.error('Failed to update status in Supabase:', err)
     }
   }
 
-  const toggleTag = async (id: string, tag: string) => {
-    const tc = testCases.find(t => t.id === id)
-    if (!tc) return
+  const updatePolicyStatus = async (id: string) => {
+    await updateStatus(id, 'UNTESTED', ['정책 확인 필요'])
+  }
 
-    const currentTags = tc.tags || []
-    let nextTags: string[]
-    if (currentTags.includes(tag)) {
-      nextTags = currentTags.filter(t => t !== tag)
-    } else {
-      nextTags = [...currentTags, tag]
-    }
-
-    setTestCases(prev => prev.map(t => t.id === id ? { ...t, tags: nextTags } : t))
-
-    try {
-      await updateTestCaseResult(id, { tags: nextTags })
-    } catch (err) {
-      console.error('Failed to update tags in Supabase:', err)
-    }
+  const updateFailType = async (id: string, failType: FailType) => {
+    await updateStatus(id, 'FAIL', [failType])
+    setPendingFailTcId(null)
   }
 
   const handleOpinionTextChange = (tcId: string, type: 'refinement' | 'policy', value: string) => {
@@ -636,6 +676,32 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
     )
   }
 
+  const renderCaseDecisionBadge = (tc: TestCase) => {
+    if (tc.tags?.includes('정책 확인 필요')) {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black tracking-wider bg-purple-500/10 text-purple-400 border border-purple-500/25">
+          정책 확인 필요
+        </span>
+      )
+    }
+
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        {renderStatusBadge(tc.status)}
+      </span>
+    )
+  }
+
+  const getDecisionLabel = (tc: TestCase) => {
+    if (tc.tags?.includes('정책 확인 필요')) return '정책 확인 필요'
+    if (tc.status === 'UNTESTED') return '미실시'
+    if (tc.status === 'FAIL') {
+      if (tc.tags?.includes('BUG')) return 'FAIL - BUG'
+      if (tc.tags?.includes('UX ISSUE')) return 'FAIL - UX ISSUE'
+    }
+    return tc.status
+  }
+
   const getGroupTitleParts = (title: string) => {
     const [displayTitle, testCategory] = title.split('|||')
     return {
@@ -746,6 +812,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
     const titleWithoutNumber = stripGroupNumber(displayTitle)
     return (tc.tags || []).filter(tag => {
       const trimmed = tag.trim()
+      if (DECISION_TAGS.includes(trimmed)) return false
       return trimmed !== displayTitle && trimmed !== titleWithoutNumber
     })
   }
@@ -797,12 +864,13 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                 : 'border-[#222631] text-zinc-400 bg-[#151821] hover:bg-zinc-800 hover:text-zinc-200'
             }`}
           >
-            <span>{isEditMode ? '✓ 수정 완료' : '✏️ 수정 모드'}</span>
+            {isEditMode ? <span>✓</span> : <PencilIcon className="h-3 w-3" />}
+            <span>{isEditMode ? '수정 완료' : '수정 모드'}</span>
           </button>
           <Button 
             variant="outline" 
             size="md" 
-            className="flex items-center gap-1.5 font-bold hover:border-accent-green hover:text-accent-green cursor-pointer"
+            className="flex items-center gap-1.5 font-bold !border-accent-green !text-accent-green hover:!border-accent-green hover:!bg-accent-green/10 hover:!text-accent-green cursor-pointer"
             onClick={() => setIsAddGroupModalOpen(true)}
           >
             <span>+</span> 기능 분류 추가
@@ -839,7 +907,6 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
               <option value="all">전체 상태</option>
               <option value="PASS">PASS</option>
               <option value="FAIL">FAIL</option>
-              <option value="REFINEMENT">개선 필요</option>
               <option value="POLICY">정책 확인 필요</option>
               <option value="UNTESTED">미실시</option>
             </select>
@@ -893,8 +960,6 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
             let matchesStatus = false
             if (selectedStatus === 'all') {
               matchesStatus = true
-            } else if (selectedStatus === 'REFINEMENT') {
-              matchesStatus = !!tc.tags?.includes('개선 필요')
             } else if (selectedStatus === 'POLICY') {
               matchesStatus = !!tc.tags?.includes('정책 확인 필요')
             } else {
@@ -931,20 +996,16 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                 <div className="flex items-center gap-3 font-mono text-xs">
                   {isEditMode && (
                     <div className="flex items-center gap-1.5 mr-2" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={() => handleStartEditGroup(group)}
-                        className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition text-[10px] font-bold cursor-pointer border border-[#222631]"
+                      <EditActionButton
+                        type="edit"
                         title="기능 분류 수정"
-                      >
-                        ✏️ 수정
-                      </button>
-                      <button
-                        onClick={() => handleDeleteGroup(group.id)}
-                        className="px-2 py-1 rounded bg-red-950/40 hover:bg-red-900/60 text-red-400 transition text-[10px] font-bold cursor-pointer border border-red-900/20"
+                        onClick={() => handleStartEditGroup(group)}
+                      />
+                      <EditActionButton
+                        type="delete"
                         title="기능 분류 삭제"
-                      >
-                        🗑️ 삭제
-                      </button>
+                        onClick={() => handleDeleteGroup(group.id)}
+                      />
                     </div>
                   )}
                   <span className="text-zinc-500 font-bold">{passCount}/{totalCount} PASS</span>
@@ -974,7 +1035,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                           >
                             <div className="flex items-start sm:items-center gap-3">
                               {/* Status Badge */}
-                              {renderStatusBadge(tc.status)}
+                              {renderCaseDecisionBadge(tc)}
                               
                               {/* TestCase Code */}
                               {tc.tc_code && (
@@ -1005,20 +1066,16 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                             {activeTestCase ? (
                               isEditMode && (
                                 <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                                  <button
-                                    onClick={() => handleStartEditTestCase(tc)}
-                                    className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition text-[10px] font-bold cursor-pointer border border-[#222631]"
+                                  <EditActionButton
+                                    type="edit"
                                     title="테스트케이스 수정"
-                                  >
-                                    ✏️ 수정
-                                  </button>
-                                  <button
-                                    onClick={() => handleDeleteTestCase(tc.id)}
-                                    className="px-2 py-1 rounded bg-red-950/40 hover:bg-red-900/60 text-red-400 transition text-[10px] font-bold cursor-pointer border border-red-900/20"
+                                    onClick={() => handleStartEditTestCase(tc)}
+                                  />
+                                  <EditActionButton
+                                    type="delete"
                                     title="테스트케이스 삭제"
-                                  >
-                                    🗑️ 삭제
-                                  </button>
+                                    onClick={() => handleDeleteTestCase(tc.id)}
+                                  />
                                 </div>
                               )
                             ) : (
@@ -1030,20 +1087,16 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                                 </div>
                                 {isEditMode && (
                                   <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                                    <button
-                                      onClick={() => handleStartEditTestCase(tc)}
-                                      className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition text-[10px] font-bold cursor-pointer border border-[#222631]"
+                                    <EditActionButton
+                                      type="edit"
                                       title="테스트케이스 수정"
-                                    >
-                                      ✏️ 수정
-                                    </button>
-                                    <button
-                                      onClick={() => handleDeleteTestCase(tc.id)}
-                                      className="px-2 py-1 rounded bg-red-950/40 hover:bg-red-900/60 text-red-400 transition text-[10px] font-bold cursor-pointer border border-red-900/20"
+                                      onClick={() => handleStartEditTestCase(tc)}
+                                    />
+                                    <EditActionButton
+                                      type="delete"
                                       title="테스트케이스 삭제"
-                                    >
-                                      🗑️ 삭제
-                                    </button>
+                                      onClick={() => handleDeleteTestCase(tc.id)}
+                                    />
                                   </div>
                                 )}
                                 <span className="text-[11px] text-zinc-600 shrink-0">
@@ -1070,8 +1123,6 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                       let matchesStatus = false
                       if (selectedStatus === 'all') {
                         matchesStatus = true
-                      } else if (selectedStatus === 'REFINEMENT') {
-                        matchesStatus = !!tc.tags?.includes('개선 필요')
                       } else if (selectedStatus === 'POLICY') {
                         matchesStatus = !!tc.tags?.includes('정책 확인 필요')
                       } else {
@@ -1118,7 +1169,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                                       }`}
                                     >
                                       <div className="flex items-start sm:items-center gap-3">
-                                        {renderStatusBadge(tc.status)}
+                                        {renderCaseDecisionBadge(tc)}
                                         {tc.tc_code && (
                                           <span className="font-mono font-bold text-[11px] text-cyan-400 bg-cyan-950/20 px-1.5 py-0.5 rounded border border-cyan-800/10 shrink-0">
                                             {tc.tc_code}
@@ -1193,7 +1244,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
           <div className="flex items-start justify-between gap-4 border-b border-zinc-900 pb-4">
             <div className="space-y-3 min-w-0">
               <div className="flex items-center gap-2">
-                {renderStatusBadge(activeTestCase.status)}
+                {renderCaseDecisionBadge(activeTestCase)}
                 {activeGroupParts.testCategory && (
                   <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded text-[10px] font-extrabold ${getPastelColor(activeGroupParts.testCategory)}`}>
                     {activeGroupParts.testCategory}
@@ -1206,7 +1257,6 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                 )}
               </div>
               <h3 className="text-lg font-black text-white leading-tight break-words">
-                {activeTestCase.tc_code && <span className="font-mono">{activeTestCase.tc_code} </span>}
                 {activeTestCase.title}
               </h3>
             </div>
@@ -1219,22 +1269,69 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
             </button>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 py-4 border-b border-zinc-900">
-            <div>
-              <div className="text-[10px] text-zinc-500 font-bold uppercase">테스트 타입</div>
-              <div className="mt-1 font-bold text-zinc-200">{activeGroupParts.displayTitle || '-'}</div>
+          <div className="rounded-xl border border-border-color bg-[#090A0D]/50 p-3.5 space-y-3.5 mt-4">
+            <div className="flex items-center justify-between border-b border-zinc-900 pb-2">
+              <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">TEST CASE INFO</span>
+              <button
+                onClick={() => handleSaveMetadata(activeTestCase.id)}
+                className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold rounded-lg transition duration-200 text-[10px] cursor-pointer border border-zinc-700/60"
+              >
+                저장
+              </button>
             </div>
-            <div>
-              <div className="text-[10px] text-zinc-500 font-bold uppercase">실행일</div>
-              <div className="mt-1 font-mono text-zinc-200">{activeTestCase.execution_date || metadataState[activeTestCase.id]?.execution_date || '-'}</div>
-            </div>
-            <div>
-              <div className="text-[10px] text-zinc-500 font-bold uppercase">OS</div>
-              <div className="mt-1 font-bold text-zinc-200">{activeTestCase.os || '-'}</div>
-            </div>
-            <div>
-              <div className="text-[10px] text-zinc-500 font-bold uppercase">테스터</div>
-              <div className="mt-1 font-bold text-zinc-200">{activeTestCase.tester || metadataState[activeTestCase.id]?.testers || '-'}</div>
+            <div className="grid grid-cols-2 gap-3 text-left">
+              <div>
+                <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">TC CODE</div>
+                <div className="mt-1 font-mono font-bold text-zinc-200">{activeTestCase.tc_code || '-'}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">DECISION</div>
+                <div className="mt-1 font-bold text-zinc-200">{getDecisionLabel(activeTestCase)}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">OS</div>
+                <div className="mt-1 font-bold text-zinc-200">{activeTestCase.os || '-'}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">APP VERSION</div>
+                <input
+                  type="text"
+                  value={metadataState[activeTestCase.id]?.app_version || ''}
+                  onChange={(e) => updateMetadataField(activeTestCase.id, 'app_version', e.target.value)}
+                  placeholder="입력..."
+                  className="w-full bg-[#11131c]/60 border border-border-color rounded-lg px-2.5 py-1.5 text-zinc-200 mt-1 text-xs outline-none focus:border-zinc-700 font-mono font-bold"
+                />
+              </div>
+              <div>
+                <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">TESTERS</div>
+                <input
+                  type="text"
+                  value={metadataState[activeTestCase.id]?.testers || activeTestCase.tester || ''}
+                  onChange={(e) => updateMetadataField(activeTestCase.id, 'testers', e.target.value)}
+                  placeholder="입력..."
+                  className="w-full bg-[#11131c]/60 border border-border-color rounded-lg px-2.5 py-1.5 text-zinc-200 mt-1 text-xs outline-none focus:border-zinc-700 font-bold"
+                />
+              </div>
+              <div>
+                <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">DEVICE</div>
+                <input
+                  type="text"
+                  value={metadataState[activeTestCase.id]?.device || ''}
+                  onChange={(e) => updateMetadataField(activeTestCase.id, 'device', e.target.value)}
+                  placeholder="입력..."
+                  className="w-full bg-[#11131c]/60 border border-border-color rounded-lg px-2.5 py-1.5 text-zinc-200 mt-1 text-xs outline-none focus:border-zinc-700 font-bold"
+                />
+              </div>
+              <div>
+                <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">EXECUTION DATE</div>
+                <input
+                  type="text"
+                  value={metadataState[activeTestCase.id]?.execution_date || activeTestCase.execution_date || ''}
+                  onChange={(e) => updateMetadataField(activeTestCase.id, 'execution_date', e.target.value)}
+                  placeholder="입력..."
+                  className="w-full bg-[#11131c]/60 border border-border-color rounded-lg px-2.5 py-1.5 text-zinc-200 mt-1 text-xs outline-none focus:border-zinc-700 font-mono font-bold"
+                />
+              </div>
             </div>
           </div>
 
@@ -1335,69 +1432,81 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
               </div>
             </div>
 
-            <div className="rounded-xl border border-border-color bg-[#090A0D]/50 p-3.5 space-y-3.5">
-              <div className="flex items-center justify-between border-b border-zinc-900 pb-2">
-                <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">ENVIRONMENT METADATA</span>
+            <div className="space-y-3 border-t border-zinc-900 pt-4">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">DECISION ACTION</div>
+              <div className="grid grid-cols-2 gap-2 rounded-2xl border border-border-color bg-[#090A0D]/50 p-3">
                 <button
-                  onClick={() => handleSaveMetadata(activeTestCase.id)}
-                  className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold rounded-lg transition duration-200 text-[10px] cursor-pointer border border-zinc-700/60"
+                  type="button"
+                  onClick={() => updateStatus(activeTestCase.id, 'PASS')}
+                  className={`rounded-xl border px-3 py-2 text-center text-[11px] font-black transition cursor-pointer ${
+                    activeTestCase.status === 'PASS' && !activeTestCase.tags?.includes('정책 확인 필요')
+                      ? 'border-accent-green/40 bg-accent-green/10 text-accent-green'
+                      : 'border-zinc-800 bg-[#11131c] text-zinc-400 hover:border-accent-green/30 hover:text-accent-green'
+                  }`}
                 >
-                  저장
+                  PASS
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPendingFailTcId(activeTestCase.id)}
+                  className={`rounded-xl border px-3 py-2 text-center text-[11px] font-black transition cursor-pointer ${
+                    activeTestCase.status === 'FAIL' && !activeTestCase.tags?.includes('정책 확인 필요')
+                      ? 'border-accent-red/40 bg-accent-red/10 text-accent-red'
+                      : 'border-zinc-800 bg-[#11131c] text-zinc-400 hover:border-accent-red/30 hover:text-accent-red'
+                  }`}
+                >
+                  {activeTestCase.status === 'FAIL' ? getDecisionLabel(activeTestCase) : 'FAIL'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateStatus(activeTestCase.id, 'UNTESTED')}
+                  className={`rounded-xl border px-3 py-2 text-center text-[11px] font-black transition cursor-pointer ${
+                    activeTestCase.status === 'UNTESTED' && !activeTestCase.tags?.includes('정책 확인 필요')
+                      ? 'border-zinc-600 bg-zinc-800/70 text-zinc-100'
+                      : 'border-zinc-800 bg-[#11131c] text-zinc-400 hover:border-zinc-600 hover:text-zinc-200'
+                  }`}
+                >
+                  미실시
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updatePolicyStatus(activeTestCase.id)}
+                  className={`rounded-xl border px-3 py-2 text-center text-[11px] font-black transition cursor-pointer ${
+                    activeTestCase.tags?.includes('정책 확인 필요')
+                      ? 'border-purple-500/40 bg-purple-500/10 text-purple-400'
+                      : 'border-zinc-800 bg-[#11131c] text-zinc-400 hover:border-purple-500/30 hover:text-purple-400'
+                  }`}
+                >
+                  정책 확인 필요
                 </button>
               </div>
-              <div className="grid grid-cols-2 gap-3 text-left">
-                <div>
-                  <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">APP VERSION</div>
+
+              {activeTestCase.tags?.includes('정책 확인 필요') && (
+                <div className="mt-2 space-y-1.5 bg-[#151821]/40 border border-purple-500/20 rounded-xl p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-purple-400 font-bold">정책 확인 필요 내용 입력</span>
+                    <button type="button" onClick={() => handleSaveOpinion(activeTestCase.id, 'policy')} className="px-2 py-0.5 bg-purple-500 hover:bg-purple-600 text-white rounded text-[10px] font-bold cursor-pointer">저장</button>
+                  </div>
                   <input
                     type="text"
-                    value={metadataState[activeTestCase.id]?.app_version || ''}
-                    onChange={(e) => updateMetadataField(activeTestCase.id, 'app_version', e.target.value)}
-                    placeholder="입력..."
-                    className="w-full bg-[#11131c]/60 border border-border-color rounded-lg px-2.5 py-1.5 text-zinc-200 mt-1 text-xs outline-none focus:border-zinc-700 font-mono font-bold"
+                    value={opinionTextsState[activeTestCase.id]?.policy || ''}
+                    onChange={(e) => handleOpinionTextChange(activeTestCase.id, 'policy', e.target.value)}
+                    placeholder="정책 확인이 필요한 내용을 입력하세요..."
+                    className="w-full bg-[#11131c]/60 border border-zinc-800 rounded px-2.5 py-1 text-zinc-200 text-xs outline-none focus:border-purple-500/50"
                   />
                 </div>
-                <div>
-                  <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">DEVICE</div>
-                  <input
-                    type="text"
-                    value={metadataState[activeTestCase.id]?.device || ''}
-                    onChange={(e) => updateMetadataField(activeTestCase.id, 'device', e.target.value)}
-                    placeholder="입력..."
-                    className="w-full bg-[#11131c]/60 border border-border-color rounded-lg px-2.5 py-1.5 text-zinc-200 mt-1 text-xs outline-none focus:border-zinc-700 font-bold"
-                  />
-                </div>
-                <div>
-                  <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">TESTERS</div>
-                  <input
-                    type="text"
-                    value={metadataState[activeTestCase.id]?.testers || ''}
-                    onChange={(e) => updateMetadataField(activeTestCase.id, 'testers', e.target.value)}
-                    placeholder="입력..."
-                    className="w-full bg-[#11131c]/60 border border-border-color rounded-lg px-2.5 py-1.5 text-zinc-200 mt-1 text-xs outline-none focus:border-zinc-700 font-bold"
-                  />
-                </div>
-                <div>
-                  <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">EXECUTION DATE</div>
-                  <input
-                    type="text"
-                    value={metadataState[activeTestCase.id]?.execution_date || ''}
-                    onChange={(e) => updateMetadataField(activeTestCase.id, 'execution_date', e.target.value)}
-                    placeholder="입력..."
-                    className="w-full bg-[#11131c]/60 border border-border-color rounded-lg px-2.5 py-1.5 text-zinc-200 mt-1 text-xs outline-none focus:border-zinc-700 font-mono font-bold"
-                  />
-                </div>
-              </div>
+              )}
             </div>
 
-            <div className="space-y-3 border-t border-zinc-900 pt-4">
+            <div className="mt-2 space-y-3 rounded-2xl border border-border-color bg-[#090A0D]/35 p-4 shadow-inner shadow-black/20">
               <div className="flex items-center gap-2 font-bold text-zinc-400">
                 REVIEW & COMMENTS
                 <span className="rounded bg-zinc-800 px-2 py-0.5 font-mono text-[10px] text-zinc-400">{activeComments.length}</span>
               </div>
-              <div className="space-y-3">
+              <div className="border-t border-zinc-800 pt-3 space-y-3">
                 {activeComments.length > 0 ? (
                   activeComments.map((com, idx) => (
-                    <div key={idx} className="border-b border-zinc-900 pb-3 leading-relaxed">
+                    <div key={idx} className="rounded-xl border border-zinc-900 bg-[#11131c]/60 p-3 leading-relaxed">
                       <div className="flex items-center justify-between gap-2 text-[11px]">
                         <span className="font-bold text-zinc-200">{com.author} <span className="text-zinc-500 font-medium">({com.role})</span></span>
                         <span className="font-mono text-zinc-600">{com.date}</span>
@@ -1434,69 +1543,6 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                   댓글 등록
                 </button>
               </div>
-            </div>
-
-            <div className="space-y-2 border-t border-zinc-900 pt-4">
-              <Button variant="outline" size="sm" className="hover:border-accent-green hover:text-accent-green w-full" onClick={() => updateStatus(activeTestCase.id, 'PASS')}>PASS 로 판정 완료</Button>
-              <Button variant="outline" size="sm" className="hover:border-accent-red hover:text-accent-red w-full" onClick={() => updateStatus(activeTestCase.id, 'FAIL')}>FAIL 로 판정 완료</Button>
-              <Button variant="outline" size="sm" className="hover:border-zinc-500 hover:text-zinc-300 w-full" onClick={() => updateStatus(activeTestCase.id, 'UNTESTED')}>미실시 상태로 변경</Button>
-
-              <div className="grid grid-cols-2 gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => toggleTag(activeTestCase.id, '개선 필요')}
-                  className={`px-2 py-1.5 rounded-lg border text-[11px] font-black transition-all cursor-pointer ${
-                    activeTestCase.tags?.includes('개선 필요')
-                      ? 'bg-yellow-500/10 border-yellow-500/40 text-yellow-500'
-                      : 'border-zinc-800 hover:border-zinc-700 text-zinc-400'
-                  }`}
-                >
-                  개선 필요 {activeTestCase.tags?.includes('개선 필요') ? '✓' : ''}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => toggleTag(activeTestCase.id, '정책 확인 필요')}
-                  className={`px-2 py-1.5 rounded-lg border text-[11px] font-black transition-all cursor-pointer ${
-                    activeTestCase.tags?.includes('정책 확인 필요')
-                      ? 'bg-purple-500/10 border-purple-500/40 text-purple-400'
-                      : 'border-zinc-800 hover:border-zinc-700 text-zinc-400'
-                  }`}
-                >
-                  정책 확인 필요 {activeTestCase.tags?.includes('정책 확인 필요') ? '✓' : ''}
-                </button>
-              </div>
-
-              {activeTestCase.tags?.includes('개선 필요') && (
-                <div className="mt-2 space-y-1.5 bg-[#151821]/40 border border-yellow-500/20 rounded-xl p-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-yellow-500 font-bold">개선 필요 내용 입력</span>
-                    <button type="button" onClick={() => handleSaveOpinion(activeTestCase.id, 'refinement')} className="px-2 py-0.5 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-[10px] font-bold cursor-pointer">저장</button>
-                  </div>
-                  <input
-                    type="text"
-                    value={opinionTextsState[activeTestCase.id]?.refinement || ''}
-                    onChange={(e) => handleOpinionTextChange(activeTestCase.id, 'refinement', e.target.value)}
-                    placeholder="개선이 필요한 내용을 입력하세요..."
-                    className="w-full bg-[#11131c]/60 border border-zinc-800 rounded px-2.5 py-1 text-zinc-200 text-xs outline-none focus:border-yellow-500/50"
-                  />
-                </div>
-              )}
-
-              {activeTestCase.tags?.includes('정책 확인 필요') && (
-                <div className="mt-2 space-y-1.5 bg-[#151821]/40 border border-purple-500/20 rounded-xl p-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-purple-400 font-bold">정책 확인 필요 내용 입력</span>
-                    <button type="button" onClick={() => handleSaveOpinion(activeTestCase.id, 'policy')} className="px-2 py-0.5 bg-purple-500 hover:bg-purple-600 text-white rounded text-[10px] font-bold cursor-pointer">저장</button>
-                  </div>
-                  <input
-                    type="text"
-                    value={opinionTextsState[activeTestCase.id]?.policy || ''}
-                    onChange={(e) => handleOpinionTextChange(activeTestCase.id, 'policy', e.target.value)}
-                    placeholder="정책 확인이 필요한 내용을 입력하세요..."
-                    className="w-full bg-[#11131c]/60 border border-zinc-800 rounded px-2.5 py-1 text-zinc-200 text-xs outline-none focus:border-purple-500/50"
-                  />
-                </div>
-              )}
             </div>
           </div>
         </aside>
@@ -1554,6 +1600,43 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
         </aside>
       )}
       </div>
+
+      {pendingFailTcId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-border-color bg-[#11131c] p-5 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-border-color pb-3 mb-4">
+              <h3 className="text-base font-black text-white">FAIL 유형 선택</h3>
+              <button
+                type="button"
+                onClick={() => setPendingFailTcId(null)}
+                className="text-zinc-500 hover:text-zinc-300 text-sm cursor-pointer"
+                aria-label="FAIL 유형 선택 닫기"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="mb-4 text-xs leading-relaxed text-zinc-400">
+              실제 기능 결함이면 BUG, 사용성 개선 요청이면 UX ISSUE를 선택해 주세요.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => updateFailType(pendingFailTcId, 'BUG')}
+                className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-xs font-black text-red-300 transition hover:bg-red-500/15 cursor-pointer"
+              >
+                BUG
+              </button>
+              <button
+                type="button"
+                onClick={() => updateFailType(pendingFailTcId, 'UX ISSUE')}
+                className="rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-xs font-black text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800 cursor-pointer"
+              >
+                UX ISSUE
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 4. Add TestCase Modal */}
       {isAddModalOpen && (
