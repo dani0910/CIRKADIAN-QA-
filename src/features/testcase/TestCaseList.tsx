@@ -43,6 +43,24 @@ const TrashIcon = ({ className = 'h-3.5 w-3.5' }: { className?: string }) => (
   </svg>
 )
 
+const ExpandIcon = ({ className = 'h-3.5 w-3.5' }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+    <path d="M15 3h6v6" />
+    <path d="M21 3l-7 7" />
+    <path d="M9 21H3v-6" />
+    <path d="M3 21l7-7" />
+  </svg>
+)
+
+const CollapseIcon = ({ className = 'h-3.5 w-3.5' }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+    <path d="M8 3v5H3" />
+    <path d="M3 8l6-6" />
+    <path d="M16 21v-5h5" />
+    <path d="M21 16l-6 6" />
+  </svg>
+)
+
 const EditActionButton = ({
   type,
   title,
@@ -69,6 +87,9 @@ const EditActionButton = ({
 const DECISION_TAGS = ['정책 확인 필요', '개선 필요', 'BUG', 'UX ISSUE']
 type FailType = 'BUG' | 'UX ISSUE'
 
+const GROUPS_PER_PAGE = 8
+const PLATFORM_TABS = ['ios', 'android', 'all'] as const
+
 interface TestCaseListProps {
   projectId: string
   categoryGroups: CategoryGroup[]
@@ -87,6 +108,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
   const [activeTcId, setActiveTcId] = useState<string | null>(null)
   const [showImageViewer, setShowImageViewer] = useState(false)
+  const [isDetailExpanded, setIsDetailExpanded] = useState(false)
   const [zoomLevel, setZoomLevel] = useState(100)
   const [rotationAngle, setRotationAngle] = useState(0)
 
@@ -247,6 +269,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
   const [selectedStatus, setSelectedStatus] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState<string>('')
   const [pendingFailTcId, setPendingFailTcId] = useState<string | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
 
   // Modal states for adding TestCase
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
@@ -310,6 +333,19 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
       }
     }
   }, [categoryGroups, newGroupId])
+
+  useEffect(() => {
+    if (!isDetailExpanded) return
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsDetailExpanded(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isDetailExpanded])
 
   // Category Group handlers
   const handleStartEditGroup = (group: CategoryGroup) => {
@@ -805,7 +841,71 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
     return true
   }
 
+  const matchesTestCaseFilters = (tc: TestCase) => {
+    const matchesOS = activeTab === 'all' || !tc.os || tc.os.toLowerCase().includes(activeTab)
+    let matchesStatus = false
+    if (selectedStatus === 'all') {
+      matchesStatus = true
+    } else if (selectedStatus === 'REFINEMENT') {
+      matchesStatus = !!tc.tags?.includes('개선 필요')
+    } else if (selectedStatus === 'POLICY') {
+      matchesStatus = !!tc.tags?.includes('정책 확인 필요')
+    } else {
+      matchesStatus = tc.status === selectedStatus
+    }
+    const normalizedQuery = searchQuery.toLowerCase()
+    const matchesSearch =
+      searchQuery === '' ||
+      tc.title.toLowerCase().includes(normalizedQuery) ||
+      tc.tc_code?.toLowerCase().includes(normalizedQuery)
+
+    return matchesOS && matchesStatus && matchesSearch
+  }
+
+  const getVisibleCasesForGroup = (group: CategoryGroup) => {
+    return testCases
+      .filter(tc => tc.group_id === group.id)
+      .filter(matchesTestCaseFilters)
+  }
+
   const filteredGroups = topGroups.filter((group, index) => matchesGroupFilter(group, index))
+  const renderableGroups = searchQuery
+    ? filteredGroups.filter(group => getVisibleCasesForGroup(group).length > 0)
+    : filteredGroups
+  const totalPages = Math.max(1, Math.ceil(renderableGroups.length / GROUPS_PER_PAGE))
+  const safeCurrentPage = Math.min(currentPage, totalPages)
+  const pageStartIndex = (safeCurrentPage - 1) * GROUPS_PER_PAGE
+  const paginatedGroups = renderableGroups.slice(pageStartIndex, pageStartIndex + GROUPS_PER_PAGE)
+  const visibleStartNumber = renderableGroups.length === 0 ? 0 : pageStartIndex + 1
+  const visibleEndNumber = Math.min(pageStartIndex + GROUPS_PER_PAGE, renderableGroups.length)
+
+  const handlePageChange = (page: number) => {
+    const nextPage = Math.min(Math.max(page, 1), totalPages)
+    setCurrentPage(nextPage)
+    setActiveTcId(null)
+    setShowImageViewer(false)
+  }
+
+  const resetListPage = () => {
+    setCurrentPage(1)
+    setActiveTcId(null)
+    setShowImageViewer(false)
+  }
+
+  const handlePlatformTabChange = (tab: typeof PLATFORM_TABS[number]) => {
+    setActiveTab(tab)
+    resetListPage()
+  }
+
+  const handleStatusChange = (value: string) => {
+    setSelectedStatus(value)
+    resetListPage()
+  }
+
+  const handleSearchQueryChange = (value: string) => {
+    setSearchQuery(value)
+    resetListPage()
+  }
 
   const getVisibleTags = (tc: TestCase, group?: CategoryGroup) => {
     const { displayTitle } = getGroupTitleParts(group?.title || '')
@@ -829,6 +929,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
   const closeDetailPanel = () => {
     setActiveTcId(null)
     setShowImageViewer(false)
+    setIsDetailExpanded(false)
     setZoomLevel(100)
     setRotationAngle(0)
   }
@@ -850,42 +951,42 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
   }
 
   return (
-    <div className="space-y-6">
+    <div className="flex h-[calc(100vh-5rem)] min-h-[640px] flex-col overflow-hidden">
       
       {/* Search and platform header filter controls */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold text-white tracking-tight">전체 테스트 케이스</h2>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setIsEditMode(!isEditMode)}
-            className={`flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl border transition-all cursor-pointer outline-none ${
-              isEditMode 
-                ? 'border-[#00BA54] text-[#00BA54] bg-[#00BA54]/10 hover:bg-[#00BA54]/20 shadow-lg shadow-[#00BA54]/10' 
-                : 'border-[#222631] text-zinc-400 bg-[#151821] hover:bg-zinc-800 hover:text-zinc-200'
-            }`}
-          >
-            {isEditMode ? <span>✓</span> : <PencilIcon className="h-3 w-3" />}
-            <span>{isEditMode ? '수정 완료' : '수정 모드'}</span>
-          </button>
-          <Button 
-            variant="outline" 
-            size="md" 
-            className="flex items-center gap-1.5 font-bold !border-accent-green !text-accent-green hover:!border-accent-green hover:!bg-accent-green/10 hover:!text-accent-green cursor-pointer"
-            onClick={() => setIsAddGroupModalOpen(true)}
-          >
-            <span>+</span> 기능 분류 추가
-          </Button>
+      <div className="flex shrink-0 flex-col gap-3 pb-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-bold text-white tracking-tight">전체 테스트 케이스</h2>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsEditMode(!isEditMode)}
+              className={`flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl border transition-all cursor-pointer outline-none ${
+                isEditMode
+                  ? 'border-[#00BA54] text-[#00BA54] bg-[#00BA54]/10 hover:bg-[#00BA54]/20 shadow-lg shadow-[#00BA54]/10'
+                  : 'border-[#222631] text-zinc-400 bg-[#151821] hover:bg-zinc-800 hover:text-zinc-200'
+              }`}
+            >
+              {isEditMode ? <span>✓</span> : <PencilIcon className="h-3 w-3" />}
+              <span>{isEditMode ? '수정 완료' : '수정 모드'}</span>
+            </button>
+            <Button
+              variant="outline"
+              size="md"
+              className="flex items-center gap-1.5 font-bold !border-accent-green !text-accent-green hover:!border-accent-green hover:!bg-accent-green/10 hover:!text-accent-green cursor-pointer"
+              onClick={() => setIsAddGroupModalOpen(true)}
+            >
+              <span>+</span> 기능 분류 추가
+            </Button>
+          </div>
         </div>
-      </div>
 
-      <div className="space-y-3">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           
           <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-xl border border-border-color self-start">
-            {['ios', 'android', 'all'].map(tab => (
+            {PLATFORM_TABS.map(tab => (
               <button
                 key={tab}
-                onClick={() => setActiveTab(tab as any)}
+                onClick={() => handlePlatformTabChange(tab)}
                 className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all capitalize ${
                   activeTab === tab
                     ? 'bg-zinc-800 text-white shadow'
@@ -901,7 +1002,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
 
             <select
               value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
+              onChange={(e) => handleStatusChange(e.target.value)}
               className="bg-card-bg border border-border-color rounded-xl px-3 py-2 text-xs font-bold text-zinc-300 outline-none cursor-pointer hover:border-zinc-700"
             >
               <option value="all">전체 상태</option>
@@ -916,7 +1017,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                 type="text"
                 placeholder="TC-ID, 테스트 항목명 검색"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => handleSearchQueryChange(e.target.value)}
                 className="bg-card-bg border border-border-color rounded-xl pl-9 pr-4 py-2 text-xs text-zinc-200 outline-none w-56 focus:border-zinc-700"
               />
               <span className="absolute left-3.5 top-2.5 text-zinc-500 text-xs">🔍</span>
@@ -928,15 +1029,13 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
       </div>
 
       {/* Hierarchical Double Accordion List + detail panels */}
-      <div className={`grid grid-cols-1 gap-4 items-start ${
-        activeTestCase && showImageViewer
-          ? 'xl:grid-cols-[minmax(420px,4fr)_minmax(360px,4fr)_minmax(360px,4fr)]'
-          : activeTestCase
-          ? 'xl:grid-cols-[minmax(0,7fr)_minmax(420px,5fr)]'
+      <div className={`grid min-h-0 flex-1 grid-cols-1 gap-4 items-stretch ${
+        activeTestCase
+          ? 'xl:grid-cols-[minmax(520px,1.2fr)_minmax(420px,0.8fr)]'
           : ''
       }`}>
-      <div className="space-y-4 min-w-0">
-        {filteredGroups.length === 0 ? (
+      <div className="min-h-0 min-w-0 space-y-4 overflow-y-auto pr-1">
+        {renderableGroups.length === 0 ? (
           <div className="border border-dashed border-border-color rounded-2xl p-10 text-center bg-card-bg/5 space-y-3">
             <div className="text-zinc-600 text-3xl select-none">📂</div>
             <h3 className="text-sm font-bold text-zinc-300">등록된 기능 분류가 없습니다</h3>
@@ -945,7 +1044,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
             </p>
           </div>
         ) : (
-          filteredGroups.map((group) => {
+          paginatedGroups.map((group) => {
           const isGroupExpanded = !!expandedGroups[group.id]
           const groupTopIndex = topGroups.findIndex(item => item.id === group.id)
           const groupInfo = getNumberedGroupInfo(group, groupTopIndex)
@@ -953,26 +1052,10 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
           
           // Get children testcases belonging to this parent category group
           const groupCases = testCases.filter(tc => tc.group_id === group.id)
-          
-          // Filter by status tab selector
-          const visibleCases = groupCases.filter(tc => {
-            const matchesOS = activeTab === 'all' || !tc.os || tc.os.toLowerCase().includes(activeTab)
-            let matchesStatus = false
-            if (selectedStatus === 'all') {
-              matchesStatus = true
-            } else if (selectedStatus === 'POLICY') {
-              matchesStatus = !!tc.tags?.includes('정책 확인 필요')
-            } else {
-              matchesStatus = tc.status === selectedStatus
-            }
-            const matchesSearch = searchQuery === '' || tc.title.toLowerCase().includes(searchQuery.toLowerCase()) || tc.tc_code?.toLowerCase().includes(searchQuery.toLowerCase())
-            return matchesOS && matchesStatus && matchesSearch
-          })
+          const visibleCases = getVisibleCasesForGroup(group)
 
           const totalCount = groupCases.length
           const passCount = groupCases.filter(c => c.status === 'PASS').length
-
-          if (visibleCases.length === 0 && searchQuery !== '') return null
 
           return (
             <div key={group.id} className="border border-border-color rounded-2xl overflow-hidden bg-card-bg/25">
@@ -1118,19 +1201,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                     const isChildExpanded = !!expandedGroups[childGroup.id]
                     const childInfo = getNumberedGroupInfo(childGroup, groupTopIndex)
                     const childCases = testCases.filter(tc => tc.group_id === childGroup.id)
-                    const visibleChildCases = childCases.filter(tc => {
-                      const matchesOS = activeTab === 'all' || !tc.os || tc.os.toLowerCase().includes(activeTab)
-                      let matchesStatus = false
-                      if (selectedStatus === 'all') {
-                        matchesStatus = true
-                      } else if (selectedStatus === 'POLICY') {
-                        matchesStatus = !!tc.tags?.includes('정책 확인 필요')
-                      } else {
-                        matchesStatus = tc.status === selectedStatus
-                      }
-                      const matchesSearch = searchQuery === '' || tc.title.toLowerCase().includes(searchQuery.toLowerCase()) || tc.tc_code?.toLowerCase().includes(searchQuery.toLowerCase())
-                      return matchesOS && matchesStatus && matchesSearch
-                    })
+                    const visibleChildCases = getVisibleCasesForGroup(childGroup)
                     const childTotalCount = childCases.length
                     const childPassCount = childCases.filter(c => c.status === 'PASS').length
 
@@ -1237,11 +1308,66 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
             </div>
           )
         }))}
+        {renderableGroups.length > GROUPS_PER_PAGE && (
+          <div className="sticky bottom-0 z-10 flex flex-col gap-3 rounded-2xl border border-border-color bg-[#0D0E12] p-3 shadow-[0_-18px_24px_rgba(13,14,18,0.95)] sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-xs font-semibold text-zinc-500">
+              {visibleStartNumber}-{visibleEndNumber} / {renderableGroups.length}개 기능 분류
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handlePageChange(safeCurrentPage - 1)}
+                disabled={safeCurrentPage === 1}
+                className="rounded-lg border border-border-color bg-[#151821] px-3 py-1.5 text-xs font-bold text-zinc-300 transition hover:border-zinc-700 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                이전
+              </button>
+              <div className="flex items-center gap-1">
+                {Array.from({ length: totalPages }, (_, index) => index + 1).map(page => (
+                  <button
+                    key={page}
+                    type="button"
+                    onClick={() => handlePageChange(page)}
+                    className={`h-8 min-w-8 rounded-lg border px-2 text-xs font-black transition ${
+                      page === safeCurrentPage
+                        ? 'border-accent-green bg-accent-green text-black'
+                        : 'border-border-color bg-[#151821] text-zinc-400 hover:border-zinc-700 hover:text-white'
+                    }`}
+                    aria-current={page === safeCurrentPage ? 'page' : undefined}
+                  >
+                    {page}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => handlePageChange(safeCurrentPage + 1)}
+                disabled={safeCurrentPage === totalPages}
+                className="rounded-lg border border-border-color bg-[#151821] px-3 py-1.5 text-xs font-bold text-zinc-300 transition hover:border-zinc-700 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                다음
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
+      {activeTestCase && isDetailExpanded && (
+        <button
+          type="button"
+          aria-label="확대 상세 패널 닫기"
+          className="fixed inset-0 z-50 cursor-default bg-black/65 backdrop-blur-sm"
+          onClick={() => setIsDetailExpanded(false)}
+        />
+      )}
+
       {activeTestCase && (
-        <aside className="sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto rounded-2xl border border-border-color bg-[#11131c]/95 p-5 shadow-2xl shadow-black/20 text-xs min-w-0">
-          <div className="flex items-start justify-between gap-4 border-b border-zinc-900 pb-4">
+        <aside className={`min-w-0 overflow-y-auto border border-border-color bg-[#11131c]/95 p-5 text-xs shadow-2xl shadow-black/20 ${
+          isDetailExpanded
+            ? 'fixed left-1/2 top-1/2 z-[60] h-[88vh] w-[88vw] max-w-[1120px] -translate-x-1/2 -translate-y-1/2 rounded-2xl'
+            : 'h-full rounded-2xl'
+        }`}>
+          <div className="sticky top-0 z-10 -mx-5 -mt-5 flex items-start justify-between gap-4 border-b border-zinc-900 bg-[#11131c] px-5 py-4">
             <div className="space-y-3 min-w-0">
               <div className="flex items-center gap-2">
                 {renderCaseDecisionBadge(activeTestCase)}
@@ -1260,13 +1386,23 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                 {activeTestCase.title}
               </h3>
             </div>
-            <button
-              onClick={closeDetailPanel}
-              className="rounded-full border border-zinc-800 px-2.5 py-1 text-zinc-400 hover:text-white hover:border-zinc-600 transition cursor-pointer"
-              aria-label="상세 패널 닫기"
-            >
-              ✕
-            </button>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <button
+                onClick={() => setIsDetailExpanded((prev) => !prev)}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-800 text-zinc-400 transition hover:border-zinc-600 hover:text-white cursor-pointer"
+                aria-label={isDetailExpanded ? '상세 패널 축소' : '상세 패널 확대'}
+                title={isDetailExpanded ? '상세 패널 축소' : '상세 패널 확대'}
+              >
+                {isDetailExpanded ? <CollapseIcon /> : <ExpandIcon />}
+              </button>
+              <button
+                onClick={closeDetailPanel}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-600 transition cursor-pointer"
+                aria-label="상세 패널 닫기"
+              >
+                ✕
+              </button>
+            </div>
           </div>
 
           <div className="rounded-xl border border-border-color bg-[#090A0D]/50 p-3.5 space-y-3.5 mt-4">
@@ -1549,7 +1685,14 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
       )}
 
       {activeTestCase && showImageViewer && (
-        <aside className="sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto rounded-2xl border border-border-color bg-[#11131c]/95 p-5 shadow-2xl shadow-black/20 text-xs min-w-0">
+        <>
+        <button
+          type="button"
+          aria-label="이미지 뷰어 닫기"
+          className="fixed inset-0 z-[65] cursor-default bg-black/65 backdrop-blur-sm"
+          onClick={() => setShowImageViewer(false)}
+        />
+        <aside className="fixed left-1/2 top-1/2 z-[70] h-[86vh] w-[86vw] max-w-[1080px] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-2xl border border-border-color bg-[#11131c]/95 p-5 shadow-2xl shadow-black/40 text-xs">
           <div className="flex items-center justify-between border-b border-zinc-900 pb-4">
             <h3 className="text-lg font-black text-white">이미지 보기</h3>
             <button
@@ -1598,6 +1741,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
             </button>
           </div>
         </aside>
+        </>
       )}
       </div>
 
