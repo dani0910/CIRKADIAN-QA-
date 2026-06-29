@@ -10,12 +10,15 @@ declare global {
     created_at: string
   }
 
-  type TestCaseStatus = 'PASS' | 'FAIL' | 'UNTESTED'
+  type TestCaseStatus = 'PASS' | 'FAIL' | 'UNTESTED' | 'POLICY_REVIEW'
 
   interface CategoryGroup {
     id: string
+    project_id?: string
+    parent_id?: string | null
     title: string
     test_category?: string
+    display_order?: number | null
   }
 
   interface TestCase {
@@ -40,18 +43,26 @@ declare global {
     prerequisites?: string[]
     expected_result?: string | null
     actual_result?: string | null
+    fail_type?: 'BUG' | 'UX_ISSUE' | null
     app_version?: string
     device?: string
     testers?: string
     execution_date?: string
     comments?: {
       author: string
-      role: string
       text: string
       date: string
     }[]
     evidence_urls: string[]
     updated_at: string
+  }
+
+  interface TCComment {
+    id: string
+    test_case_id: string
+    author: string
+    body: string
+    created_at: string
   }
 }
 

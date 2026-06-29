@@ -1,10 +1,10 @@
 'use client'
 
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { supabase } from '@/lib/supabase'
-import { createTestCase, createCategoryGroup, updateTestCaseResult, uploadTestCaseEvidence, addTestCaseComment, updateOpinionText, updateCategoryGroup, deleteCategoryGroup, updateTestCase, deleteTestCase } from '@/app/actions'
+import { createTestCase, createCategoryGroup, updateTestCaseResult, uploadTestCaseEvidence, addTestCaseComment, updateCategoryGroup, deleteCategoryGroup, updateTestCase, deleteTestCase } from '@/app/actions'
 
 const getPastelColor = (str: string) => {
   let hash = 0;
@@ -26,14 +26,96 @@ const stripAuthorPrefix = (value: string | null | undefined) => {
   return (value || '').replace(/^\[[^\]]+\]\s*/, '')
 }
 
+const PencilIcon = ({ className = 'h-3.5 w-3.5' }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+    <path d="M12 20h9" />
+    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+  </svg>
+)
+
+const TrashIcon = ({ className = 'h-3.5 w-3.5' }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+    <path d="M3 6h18" />
+    <path d="M8 6V4h8v2" />
+    <path d="M19 6l-1 14H6L5 6" />
+    <path d="M10 11v5" />
+    <path d="M14 11v5" />
+  </svg>
+)
+
+const ExpandIcon = ({ className = 'h-3.5 w-3.5' }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+    <path d="M15 3h6v6" />
+    <path d="M21 3l-7 7" />
+    <path d="M9 21H3v-6" />
+    <path d="M3 21l7-7" />
+  </svg>
+)
+
+const CollapseIcon = ({ className = 'h-3.5 w-3.5' }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+    <path d="M8 3v5H3" />
+    <path d="M3 8l6-6" />
+    <path d="M16 21v-5h5" />
+    <path d="M21 16l-6 6" />
+  </svg>
+)
+
+const EditActionButton = ({
+  type,
+  title,
+  onClick,
+}: {
+  type: 'edit' | 'delete'
+  title: string
+  onClick: () => void
+}) => (
+  <button
+    onClick={onClick}
+    className={`inline-flex h-7 w-7 items-center justify-center rounded-lg border transition cursor-pointer ${
+      type === 'delete'
+        ? 'border-zinc-800 bg-[#151821] text-zinc-500 hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-300'
+        : 'border-zinc-800 bg-[#151821] text-zinc-400 hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100'
+    }`}
+    title={title}
+    aria-label={title}
+  >
+    {type === 'delete' ? <TrashIcon /> : <PencilIcon />}
+  </button>
+)
+
+const DECISION_TAGS = ['개선 필요', 'BUG', 'UX_ISSUE']
+type FailType = 'BUG' | 'UX_ISSUE'
+
+const GROUPS_PER_PAGE = 8
+const PLATFORM_TABS = ['ios', 'android', 'all'] as const
+
 interface TestCaseListProps {
   projectId: string
   categoryGroups: CategoryGroup[]
   testCases: TestCase[]
   tcDetails: TCDetail[]
+  tcComments?: TCComment[]
 }
 
-export default function TestCaseList({ projectId, categoryGroups, testCases: initialTestCases, tcDetails }: TestCaseListProps) {
+const mapDbComments = (comments: TCComment[] = []) =>
+  comments.map(comment => ({
+    author: comment.author,
+    text: comment.body,
+    date: comment.created_at ? new Date(comment.created_at).toLocaleDateString('ko-KR') : ''
+  }))
+
+const legacyCommentsFromDetail = (detail: TCDetail) => {
+  if (Array.isArray(detail.comments)) {
+    return detail.comments
+  }
+  if (detail.comments && typeof detail.comments === 'object') {
+    return (detail.comments as any).list || []
+  }
+  return []
+}
+
+export default function TestCaseList({ projectId, categoryGroups, testCases: initialTestCases, tcDetails, tcComments = [] }: TestCaseListProps) {
   const [testCases, setTestCases] = useState<TestCase[]>(initialTestCases)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -44,35 +126,21 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
   const [activeTcId, setActiveTcId] = useState<string | null>(null)
   const [showImageViewer, setShowImageViewer] = useState(false)
+  const [isDetailExpanded, setIsDetailExpanded] = useState(false)
   const [zoomLevel, setZoomLevel] = useState(100)
   const [rotationAngle, setRotationAngle] = useState(0)
 
   // Comments, image gallery switcher, and uploads states mapped by TestCase ID
-  const [commentsState, setCommentsState] = useState<Record<string, { author: string; role: string; text: string; date: string }[]>>(() => {
+  const [commentsState, setCommentsState] = useState<Record<string, { author: string; text: string; date: string }[]>>(() => {
     const initial: Record<string, any> = {}
+    const commentsByTcId = tcComments.reduce<Record<string, TCComment[]>>((acc, comment) => {
+      acc[comment.test_case_id] = [...(acc[comment.test_case_id] || []), comment]
+      return acc
+    }, {})
     tcDetails.forEach(detail => {
-      if (Array.isArray(detail.comments)) {
-        initial[detail.id] = detail.comments
-      } else if (detail.comments && typeof detail.comments === 'object') {
-        initial[detail.id] = (detail.comments as any).list || []
-      } else {
-        initial[detail.id] = []
-      }
-    })
-    return initial
-  })
-
-  const [opinionTextsState, setOpinionTextsState] = useState<Record<string, { refinement: string; policy: string }>>(() => {
-    const initial: Record<string, { refinement: string; policy: string }> = {}
-    tcDetails.forEach(detail => {
-      if (detail.comments && typeof detail.comments === 'object' && !Array.isArray(detail.comments)) {
-        initial[detail.id] = {
-          refinement: (detail.comments as any).refinement_text || '',
-          policy: (detail.comments as any).policy_text || ''
-        }
-      } else {
-        initial[detail.id] = { refinement: '', policy: '' }
-      }
+      initial[detail.id] = commentsByTcId[detail.id]?.length
+        ? mapDbComments(commentsByTcId[detail.id])
+        : legacyCommentsFromDetail(detail)
     })
     return initial
   })
@@ -130,28 +198,14 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
   useEffect(() => {
     setCommentsState(prev => {
       const next = { ...prev }
+      const commentsByTcId = tcComments.reduce<Record<string, TCComment[]>>((acc, comment) => {
+        acc[comment.test_case_id] = [...(acc[comment.test_case_id] || []), comment]
+        return acc
+      }, {})
       tcDetails.forEach(detail => {
-        if (Array.isArray(detail.comments)) {
-          next[detail.id] = detail.comments
-        } else if (detail.comments && typeof detail.comments === 'object') {
-          next[detail.id] = (detail.comments as any).list || []
-        } else {
-          next[detail.id] = []
-        }
-      })
-      return next
-    })
-    setOpinionTextsState(prev => {
-      const next = { ...prev }
-      tcDetails.forEach(detail => {
-        if (detail.comments && typeof detail.comments === 'object' && !Array.isArray(detail.comments)) {
-          next[detail.id] = {
-            refinement: (detail.comments as any).refinement_text || '',
-            policy: (detail.comments as any).policy_text || ''
-          }
-        } else {
-          next[detail.id] = { refinement: '', policy: '' }
-        }
+        next[detail.id] = commentsByTcId[detail.id]?.length
+          ? mapDbComments(commentsByTcId[detail.id])
+          : legacyCommentsFromDetail(detail)
       })
       return next
     })
@@ -196,13 +250,15 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
       })
       return next
     })
-  }, [tcDetails])
+  }, [tcDetails, tcComments])
 
   // Filter States
   const [activeTab, setActiveTab] = useState<'all' | 'ios' | 'android'>('ios')
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
   const [selectedStatus, setSelectedStatus] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState<string>('')
+  const [pendingFailTcId, setPendingFailTcId] = useState<string | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
 
   // Modal states for adding TestCase
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
@@ -254,18 +310,49 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
   const [isSavingTestCase, setIsSavingTestCase] = useState(false)
   const [editTcErrorMsg, setEditTcErrorMsg] = useState('')
 
+  const projectCategoryGroups = useMemo(
+    () => categoryGroups.filter(group => !group.project_id || group.project_id === projectId),
+    [categoryGroups, projectId]
+  )
+
+  const projectTestCases = useMemo(
+    () => testCases.filter(tc => tc.project_id === projectId),
+    [testCases, projectId]
+  )
+
   useEffect(() => {
-    if (categoryGroups.length > 0) {
-      const exists = categoryGroups.some(g => g.id === newGroupId)
+    if (projectCategoryGroups.length > 0) {
+      const exists = projectCategoryGroups.some(g => g.id === newGroupId)
       if (!exists) {
-        setNewGroupId(categoryGroups[0].id)
+        setNewGroupId(projectCategoryGroups[0].id)
       }
     } else {
       if (newGroupId !== '') {
         setNewGroupId('')
       }
     }
-  }, [categoryGroups, newGroupId])
+  }, [projectCategoryGroups, newGroupId])
+
+  useEffect(() => {
+    setExpandedGroups({})
+    setActiveTcId(null)
+    setShowImageViewer(false)
+    setIsDetailExpanded(false)
+    setCurrentPage(1)
+  }, [projectId])
+
+  useEffect(() => {
+    if (!isDetailExpanded) return
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsDetailExpanded(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isDetailExpanded])
 
   // Category Group handlers
   const handleStartEditGroup = (group: CategoryGroup) => {
@@ -376,12 +463,21 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
     if (!newGroupTitle.trim()) return
 
     const selectedTestCategory = categorySelectType === 'custom' ? newGroupTestCategory.trim() : categorySelectType
-    const numberedTitle = `${groupNumberPreview} ${newGroupTitle.trim()}`
+    const parentId = groupCreateMode === 'child'
+      ? parentGroupIdForChild || topGroups[0]?.id || null
+      : null
+    const displayOrder = groupCreateMode === 'parent'
+      ? getNextParentNumber()
+      : (() => {
+          const parentInfo = getParentPreviewInfo()
+          if (!parentInfo) return 1
+          return getNextChildLetter(parentInfo.number).charCodeAt(0) - 64
+        })()
 
     setIsAddingGroup(true)
     setGroupErrorMsg('')
     try {
-      await createCategoryGroup(projectId, numberedTitle, selectedTestCategory)
+      await createCategoryGroup(projectId, newGroupTitle.trim(), selectedTestCategory, parentId, displayOrder)
       setNewGroupTitle('')
       setNewGroupTestCategory('')
       setCategorySelectType('HW')
@@ -471,46 +567,18 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
     }
   }
 
-  const toggleTag = async (id: string, tag: string) => {
-    const tc = testCases.find(t => t.id === id)
-    if (!tc) return
-
-    const currentTags = tc.tags || []
-    let nextTags: string[]
-    if (currentTags.includes(tag)) {
-      nextTags = currentTags.filter(t => t !== tag)
-    } else {
-      nextTags = [...currentTags, tag]
-    }
-
-    setTestCases(prev => prev.map(t => t.id === id ? { ...t, tags: nextTags } : t))
-
-    try {
-      await updateTestCaseResult(id, { tags: nextTags })
-    } catch (err) {
-      console.error('Failed to update tags in Supabase:', err)
-    }
+  const updatePolicyStatus = async (id: string) => {
+    await updateStatus(id, 'POLICY_REVIEW')
   }
 
-  const handleOpinionTextChange = (tcId: string, type: 'refinement' | 'policy', value: string) => {
-    setOpinionTextsState(prev => ({
-      ...prev,
-      [tcId]: {
-        ...(prev[tcId] || { refinement: '', policy: '' }),
-        [type]: value
-      }
-    }))
-  }
-
-  const handleSaveOpinion = async (tcId: string, type: 'refinement' | 'policy') => {
-    const val = opinionTextsState[tcId]?.[type] || ''
+  const updateFailType = async (id: string, _failType: FailType) => {
+    setTestCases(prev => prev.map(tc => tc.id === id ? { ...tc, status: 'FAIL' } : tc))
     try {
-      await updateOpinionText(tcId, type, val)
-      alert('의견이 성공적으로 저장되었습니다.')
+      await updateTestCaseResult(id, { status: 'FAIL', failType: _failType })
     } catch (err) {
-      console.error('Failed to save opinion:', err)
-      alert('의견 저장 중 오류가 발생했습니다.')
+      console.error('Failed to update fail type in Supabase:', err)
     }
+    setPendingFailTcId(null)
   }
 
   const handleSaveActualResult = async (tcId: string) => {
@@ -565,7 +633,6 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
 
     const newComment = {
       author: author.trim(),
-      role: 'Tester',
       text: text.trim(),
       date: new Date().toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' }) + ' ' + new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
     }
@@ -620,13 +687,15 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
     const styles = {
       PASS: 'bg-[#00BA54]/10 text-accent-green border border-[#00BA54]/20',
       FAIL: 'bg-[#DE3A3A]/10 text-[#DE3A3A] border border-[#DE3A3A]/20',
-      UNTESTED: 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+      UNTESTED: 'bg-zinc-800 text-zinc-400 border border-zinc-700',
+      POLICY_REVIEW: 'bg-purple-500/10 text-purple-400 border border-purple-500/25'
     }
 
     const labels = {
       PASS: 'PASS',
       FAIL: 'FAIL',
-      UNTESTED: '미실시'
+      UNTESTED: '미실시',
+      POLICY_REVIEW: '정책 검토'
     }
 
     return (
@@ -636,11 +705,27 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
     )
   }
 
-  const getGroupTitleParts = (title: string) => {
-    const [displayTitle, testCategory] = title.split('|||')
+  const renderCaseDecisionBadge = (tc: TestCase) => {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        {renderStatusBadge(tc.status)}
+      </span>
+    )
+  }
+
+  const getDecisionLabel = (tc: TestCase) => {
+    if (tc.status === 'POLICY_REVIEW') return '정책 검토'
+    if (tc.status === 'UNTESTED') return '미실시'
+    return tc.status
+  }
+
+  const getGroupTitleParts = (groupOrTitle: CategoryGroup | string) => {
+    const title = typeof groupOrTitle === 'string' ? groupOrTitle : groupOrTitle.title
+    const storedCategory = typeof groupOrTitle === 'string' ? '' : groupOrTitle.test_category || ''
+    const [displayTitle, legacyTestCategory] = title.split('|||')
     return {
       displayTitle: displayTitle?.trim() || title,
-      testCategory: testCategory?.trim() || ''
+      testCategory: storedCategory || legacyTestCategory?.trim() || ''
     }
   }
 
@@ -649,7 +734,26 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
   }
 
   const getNumberedGroupInfo = (group: CategoryGroup, topIndex: number) => {
-    const { displayTitle, testCategory } = getGroupTitleParts(group.title)
+    const { displayTitle, testCategory } = getGroupTitleParts(group)
+    const hasStructuredShape =
+      group.parent_id !== undefined ||
+      group.display_order !== undefined ||
+      group.test_category !== undefined
+
+    if (hasStructuredShape && !/^\d+(?:-[A-Z])?\.\s*/.test(displayTitle)) {
+      const isChild = !!group.parent_id
+      const number = isChild ? topIndex + 1 : group.display_order || topIndex + 1
+      const childIndex = Math.max((group.display_order || 1) - 1, 0)
+      const letter = isChild ? String.fromCharCode(65 + childIndex) : ''
+      return {
+        number,
+        letter,
+        code: letter ? `${number}-${letter}.` : `${number}.`,
+        title: displayTitle,
+        testCategory
+      }
+    }
+
     const match = displayTitle.match(/^(\d+)(?:-([A-Z]))?\.\s*(.*)$/)
     if (match) {
       const number = Number(match[1])
@@ -671,13 +775,30 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
     }
   }
 
-  const topGroups = categoryGroups.filter(group => {
-    const { displayTitle } = getGroupTitleParts(group.title)
+  const topGroups = projectCategoryGroups.filter(group => {
+    if (group.parent_id !== undefined) return !group.parent_id
+    const { displayTitle } = getGroupTitleParts(group)
     return !/^\d+-[A-Z]\.\s*/.test(displayTitle)
+  }).sort((a, b) => {
+    const orderA = a.display_order ?? Number.MAX_SAFE_INTEGER
+    const orderB = b.display_order ?? Number.MAX_SAFE_INTEGER
+    return orderA - orderB
   })
 
-  const childGroupsByParentNumber = categoryGroups.reduce<Record<number, CategoryGroup[]>>((acc, group) => {
-    const { displayTitle } = getGroupTitleParts(group.title)
+  const childGroupsByParentNumber = projectCategoryGroups.reduce<Record<number, CategoryGroup[]>>((acc, group) => {
+    if (group.parent_id !== undefined && group.parent_id) {
+      const parentIndex = topGroups.findIndex(parent => parent.id === group.parent_id)
+      if (parentIndex < 0) return acc
+      const parentNumber = topGroups[parentIndex].display_order || parentIndex + 1
+      acc[parentNumber] = [...(acc[parentNumber] || []), group].sort((a, b) => {
+        const orderA = a.display_order ?? Number.MAX_SAFE_INTEGER
+        const orderB = b.display_order ?? Number.MAX_SAFE_INTEGER
+        return orderA - orderB
+      })
+      return acc
+    }
+
+    const { displayTitle } = getGroupTitleParts(group)
     const match = displayTitle.match(/^(\d+)-[A-Z]\.\s*/)
     if (!match) return acc
     const parentNumber = Number(match[1])
@@ -700,8 +821,9 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
   const getNextChildLetter = (parentNumber: number) => {
     const children = childGroupsByParentNumber[parentNumber] || []
     const maxIndex = children.reduce((max, child) => {
-      const { displayTitle } = getGroupTitleParts(child.title)
+      const { displayTitle } = getGroupTitleParts(child)
       const match = displayTitle.match(/^\d+-([A-Z])\.\s*/)
+      if (!match && child.display_order) return Math.max(max, child.display_order - 1)
       if (!match) return max
       return Math.max(max, match[1].charCodeAt(0) - 65)
     }, -1)
@@ -723,7 +845,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
       const info = getNumberedGroupInfo(group, parentIndex)
       return `${info.code} ${info.title}`
     }
-    const { displayTitle } = getGroupTitleParts(group.title)
+    const { displayTitle } = getGroupTitleParts(group)
     return displayTitle
   }
 
@@ -739,29 +861,95 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
     return true
   }
 
+  const matchesTestCaseFilters = (tc: TestCase) => {
+    const matchesOS = activeTab === 'all' || !tc.os || tc.os.toLowerCase().includes(activeTab)
+    let matchesStatus = false
+    if (selectedStatus === 'all') {
+      matchesStatus = true
+    } else if (selectedStatus === 'REFINEMENT') {
+      matchesStatus = !!tc.tags?.includes('개선 필요')
+    } else if (selectedStatus === 'POLICY_REVIEW') {
+      matchesStatus = tc.status === 'POLICY_REVIEW'
+    } else {
+      matchesStatus = tc.status === selectedStatus
+    }
+    const normalizedQuery = searchQuery.toLowerCase()
+    const matchesSearch =
+      searchQuery === '' ||
+      tc.title.toLowerCase().includes(normalizedQuery) ||
+      tc.tc_code?.toLowerCase().includes(normalizedQuery)
+
+    return matchesOS && matchesStatus && matchesSearch
+  }
+
+  const getVisibleCasesForGroup = (group: CategoryGroup) => {
+    return projectTestCases
+      .filter(tc => tc.group_id === group.id)
+      .filter(matchesTestCaseFilters)
+  }
+
   const filteredGroups = topGroups.filter((group, index) => matchesGroupFilter(group, index))
+  const renderableGroups = searchQuery
+    ? filteredGroups.filter(group => getVisibleCasesForGroup(group).length > 0)
+    : filteredGroups
+  const totalPages = Math.max(1, Math.ceil(renderableGroups.length / GROUPS_PER_PAGE))
+  const safeCurrentPage = Math.min(currentPage, totalPages)
+  const pageStartIndex = (safeCurrentPage - 1) * GROUPS_PER_PAGE
+  const paginatedGroups = renderableGroups.slice(pageStartIndex, pageStartIndex + GROUPS_PER_PAGE)
+  const visibleStartNumber = renderableGroups.length === 0 ? 0 : pageStartIndex + 1
+  const visibleEndNumber = Math.min(pageStartIndex + GROUPS_PER_PAGE, renderableGroups.length)
+
+  const handlePageChange = (page: number) => {
+    const nextPage = Math.min(Math.max(page, 1), totalPages)
+    setCurrentPage(nextPage)
+    setActiveTcId(null)
+    setShowImageViewer(false)
+  }
+
+  const resetListPage = () => {
+    setCurrentPage(1)
+    setActiveTcId(null)
+    setShowImageViewer(false)
+  }
+
+  const handlePlatformTabChange = (tab: typeof PLATFORM_TABS[number]) => {
+    setActiveTab(tab)
+    resetListPage()
+  }
+
+  const handleStatusChange = (value: string) => {
+    setSelectedStatus(value)
+    resetListPage()
+  }
+
+  const handleSearchQueryChange = (value: string) => {
+    setSearchQuery(value)
+    resetListPage()
+  }
 
   const getVisibleTags = (tc: TestCase, group?: CategoryGroup) => {
-    const { displayTitle } = getGroupTitleParts(group?.title || '')
+    const { displayTitle } = getGroupTitleParts(group || '')
     const titleWithoutNumber = stripGroupNumber(displayTitle)
     return (tc.tags || []).filter(tag => {
       const trimmed = tag.trim()
+      if (DECISION_TAGS.includes(trimmed)) return false
       return trimmed !== displayTitle && trimmed !== titleWithoutNumber
     })
   }
 
-  const activeTestCase = activeTcId ? testCases.find(tc => tc.id === activeTcId) : null
+  const activeTestCase = activeTcId ? projectTestCases.find(tc => tc.id === activeTcId) : null
   const activeDetail = activeTcId ? tcDetails.find(detail => detail.id === activeTcId) : null
-  const activeGroup = activeTestCase ? categoryGroups.find(group => group.id === activeTestCase.group_id) : undefined
+  const activeGroup = activeTestCase ? projectCategoryGroups.find(group => group.id === activeTestCase.group_id) : undefined
   const activeComments = activeTcId ? commentsState[activeTcId] || [] : []
   const activeImages = activeTcId ? imagesState[activeTcId] || [] : []
   const activeImageIndex = activeTcId ? activeImageIndexes[activeTcId] || 0 : 0
   const activePreviewUrl = activeImages[activeImageIndex] || ''
-  const activeGroupParts = getGroupTitleParts(activeGroup?.title || '')
+  const activeGroupParts = getGroupTitleParts(activeGroup || '')
 
   const closeDetailPanel = () => {
     setActiveTcId(null)
     setShowImageViewer(false)
+    setIsDetailExpanded(false)
     setZoomLevel(100)
     setRotationAngle(0)
   }
@@ -783,41 +971,42 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
   }
 
   return (
-    <div className="space-y-6">
+    <div className="flex h-[calc(100vh-5rem)] min-h-[640px] flex-col overflow-hidden">
       
       {/* Search and platform header filter controls */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold text-white tracking-tight">전체 테스트 케이스</h2>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setIsEditMode(!isEditMode)}
-            className={`flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl border transition-all cursor-pointer outline-none ${
-              isEditMode 
-                ? 'border-[#00BA54] text-[#00BA54] bg-[#00BA54]/10 hover:bg-[#00BA54]/20 shadow-lg shadow-[#00BA54]/10' 
-                : 'border-[#222631] text-zinc-400 bg-[#151821] hover:bg-zinc-800 hover:text-zinc-200'
-            }`}
-          >
-            <span>{isEditMode ? '✓ 수정 완료' : '✏️ 수정 모드'}</span>
-          </button>
-          <Button 
-            variant="outline" 
-            size="md" 
-            className="flex items-center gap-1.5 font-bold hover:border-accent-green hover:text-accent-green cursor-pointer"
-            onClick={() => setIsAddGroupModalOpen(true)}
-          >
-            <span>+</span> 기능 분류 추가
-          </Button>
+      <div className="flex shrink-0 flex-col gap-3 pb-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-bold text-white tracking-tight">전체 테스트 케이스</h2>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsEditMode(!isEditMode)}
+              className={`flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl border transition-all cursor-pointer outline-none ${
+                isEditMode
+                  ? 'border-[#00BA54] text-[#00BA54] bg-[#00BA54]/10 hover:bg-[#00BA54]/20 shadow-lg shadow-[#00BA54]/10'
+                  : 'border-[#222631] text-zinc-400 bg-[#151821] hover:bg-zinc-800 hover:text-zinc-200'
+              }`}
+            >
+              {isEditMode ? <span>✓</span> : <PencilIcon className="h-3 w-3" />}
+              <span>{isEditMode ? '수정 완료' : '수정 모드'}</span>
+            </button>
+            <Button
+              variant="outline"
+              size="md"
+              className="flex items-center gap-1.5 font-bold !border-accent-green !text-accent-green hover:!border-accent-green hover:!bg-accent-green/10 hover:!text-accent-green cursor-pointer"
+              onClick={() => setIsAddGroupModalOpen(true)}
+            >
+              <span>+</span> 기능 분류 추가
+            </Button>
+          </div>
         </div>
-      </div>
 
-      <div className="space-y-3">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           
           <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-xl border border-border-color self-start">
-            {['ios', 'android', 'all'].map(tab => (
+            {PLATFORM_TABS.map(tab => (
               <button
                 key={tab}
-                onClick={() => setActiveTab(tab as any)}
+                onClick={() => handlePlatformTabChange(tab)}
                 className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all capitalize ${
                   activeTab === tab
                     ? 'bg-zinc-800 text-white shadow'
@@ -833,14 +1022,13 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
 
             <select
               value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
+              onChange={(e) => handleStatusChange(e.target.value)}
               className="bg-card-bg border border-border-color rounded-xl px-3 py-2 text-xs font-bold text-zinc-300 outline-none cursor-pointer hover:border-zinc-700"
             >
               <option value="all">전체 상태</option>
               <option value="PASS">PASS</option>
               <option value="FAIL">FAIL</option>
-              <option value="REFINEMENT">개선 필요</option>
-              <option value="POLICY">정책 확인 필요</option>
+              <option value="POLICY_REVIEW">정책 검토</option>
               <option value="UNTESTED">미실시</option>
             </select>
 
@@ -849,7 +1037,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                 type="text"
                 placeholder="TC-ID, 테스트 항목명 검색"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => handleSearchQueryChange(e.target.value)}
                 className="bg-card-bg border border-border-color rounded-xl pl-9 pr-4 py-2 text-xs text-zinc-200 outline-none w-56 focus:border-zinc-700"
               />
               <span className="absolute left-3.5 top-2.5 text-zinc-500 text-xs">🔍</span>
@@ -861,15 +1049,13 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
       </div>
 
       {/* Hierarchical Double Accordion List + detail panels */}
-      <div className={`grid grid-cols-1 gap-4 items-start ${
-        activeTestCase && showImageViewer
-          ? 'xl:grid-cols-[minmax(420px,4fr)_minmax(360px,4fr)_minmax(360px,4fr)]'
-          : activeTestCase
-          ? 'xl:grid-cols-[minmax(0,7fr)_minmax(420px,5fr)]'
+      <div className={`grid min-h-0 flex-1 grid-cols-1 gap-4 items-stretch ${
+        activeTestCase
+          ? 'xl:grid-cols-[minmax(520px,1.2fr)_minmax(420px,0.8fr)]'
           : ''
       }`}>
-      <div className="space-y-4 min-w-0">
-        {filteredGroups.length === 0 ? (
+      <div className="min-h-0 min-w-0 space-y-4 overflow-y-auto pr-1">
+        {renderableGroups.length === 0 ? (
           <div className="border border-dashed border-border-color rounded-2xl p-10 text-center bg-card-bg/5 space-y-3">
             <div className="text-zinc-600 text-3xl select-none">📂</div>
             <h3 className="text-sm font-bold text-zinc-300">등록된 기능 분류가 없습니다</h3>
@@ -878,36 +1064,18 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
             </p>
           </div>
         ) : (
-          filteredGroups.map((group) => {
+          paginatedGroups.map((group) => {
           const isGroupExpanded = !!expandedGroups[group.id]
           const groupTopIndex = topGroups.findIndex(item => item.id === group.id)
           const groupInfo = getNumberedGroupInfo(group, groupTopIndex)
           const childGroups = childGroupsByParentNumber[groupInfo.number] || []
           
           // Get children testcases belonging to this parent category group
-          const groupCases = testCases.filter(tc => tc.group_id === group.id)
-          
-          // Filter by status tab selector
-          const visibleCases = groupCases.filter(tc => {
-            const matchesOS = activeTab === 'all' || !tc.os || tc.os.toLowerCase().includes(activeTab)
-            let matchesStatus = false
-            if (selectedStatus === 'all') {
-              matchesStatus = true
-            } else if (selectedStatus === 'REFINEMENT') {
-              matchesStatus = !!tc.tags?.includes('개선 필요')
-            } else if (selectedStatus === 'POLICY') {
-              matchesStatus = !!tc.tags?.includes('정책 확인 필요')
-            } else {
-              matchesStatus = tc.status === selectedStatus
-            }
-            const matchesSearch = searchQuery === '' || tc.title.toLowerCase().includes(searchQuery.toLowerCase()) || tc.tc_code?.toLowerCase().includes(searchQuery.toLowerCase())
-            return matchesOS && matchesStatus && matchesSearch
-          })
+          const groupCases = projectTestCases.filter(tc => tc.group_id === group.id)
+          const visibleCases = getVisibleCasesForGroup(group)
 
           const totalCount = groupCases.length
           const passCount = groupCases.filter(c => c.status === 'PASS').length
-
-          if (visibleCases.length === 0 && searchQuery !== '') return null
 
           return (
             <div key={group.id} className="border border-border-color rounded-2xl overflow-hidden bg-card-bg/25">
@@ -931,20 +1099,16 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                 <div className="flex items-center gap-3 font-mono text-xs">
                   {isEditMode && (
                     <div className="flex items-center gap-1.5 mr-2" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={() => handleStartEditGroup(group)}
-                        className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition text-[10px] font-bold cursor-pointer border border-[#222631]"
+                      <EditActionButton
+                        type="edit"
                         title="기능 분류 수정"
-                      >
-                        ✏️ 수정
-                      </button>
-                      <button
-                        onClick={() => handleDeleteGroup(group.id)}
-                        className="px-2 py-1 rounded bg-red-950/40 hover:bg-red-900/60 text-red-400 transition text-[10px] font-bold cursor-pointer border border-red-900/20"
+                        onClick={() => handleStartEditGroup(group)}
+                      />
+                      <EditActionButton
+                        type="delete"
                         title="기능 분류 삭제"
-                      >
-                        🗑️ 삭제
-                      </button>
+                        onClick={() => handleDeleteGroup(group.id)}
+                      />
                     </div>
                   )}
                   <span className="text-zinc-500 font-bold">{passCount}/{totalCount} PASS</span>
@@ -974,7 +1138,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                           >
                             <div className="flex items-start sm:items-center gap-3">
                               {/* Status Badge */}
-                              {renderStatusBadge(tc.status)}
+                              {renderCaseDecisionBadge(tc)}
                               
                               {/* TestCase Code */}
                               {tc.tc_code && (
@@ -1005,20 +1169,16 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                             {activeTestCase ? (
                               isEditMode && (
                                 <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                                  <button
-                                    onClick={() => handleStartEditTestCase(tc)}
-                                    className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition text-[10px] font-bold cursor-pointer border border-[#222631]"
+                                  <EditActionButton
+                                    type="edit"
                                     title="테스트케이스 수정"
-                                  >
-                                    ✏️ 수정
-                                  </button>
-                                  <button
-                                    onClick={() => handleDeleteTestCase(tc.id)}
-                                    className="px-2 py-1 rounded bg-red-950/40 hover:bg-red-900/60 text-red-400 transition text-[10px] font-bold cursor-pointer border border-red-900/20"
+                                    onClick={() => handleStartEditTestCase(tc)}
+                                  />
+                                  <EditActionButton
+                                    type="delete"
                                     title="테스트케이스 삭제"
-                                  >
-                                    🗑️ 삭제
-                                  </button>
+                                    onClick={() => handleDeleteTestCase(tc.id)}
+                                  />
                                 </div>
                               )
                             ) : (
@@ -1030,20 +1190,16 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                                 </div>
                                 {isEditMode && (
                                   <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                                    <button
-                                      onClick={() => handleStartEditTestCase(tc)}
-                                      className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition text-[10px] font-bold cursor-pointer border border-[#222631]"
+                                    <EditActionButton
+                                      type="edit"
                                       title="테스트케이스 수정"
-                                    >
-                                      ✏️ 수정
-                                    </button>
-                                    <button
-                                      onClick={() => handleDeleteTestCase(tc.id)}
-                                      className="px-2 py-1 rounded bg-red-950/40 hover:bg-red-900/60 text-red-400 transition text-[10px] font-bold cursor-pointer border border-red-900/20"
+                                      onClick={() => handleStartEditTestCase(tc)}
+                                    />
+                                    <EditActionButton
+                                      type="delete"
                                       title="테스트케이스 삭제"
-                                    >
-                                      🗑️ 삭제
-                                    </button>
+                                      onClick={() => handleDeleteTestCase(tc.id)}
+                                    />
                                   </div>
                                 )}
                                 <span className="text-[11px] text-zinc-600 shrink-0">
@@ -1064,22 +1220,8 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                   {childGroups.map((childGroup) => {
                     const isChildExpanded = !!expandedGroups[childGroup.id]
                     const childInfo = getNumberedGroupInfo(childGroup, groupTopIndex)
-                    const childCases = testCases.filter(tc => tc.group_id === childGroup.id)
-                    const visibleChildCases = childCases.filter(tc => {
-                      const matchesOS = activeTab === 'all' || !tc.os || tc.os.toLowerCase().includes(activeTab)
-                      let matchesStatus = false
-                      if (selectedStatus === 'all') {
-                        matchesStatus = true
-                      } else if (selectedStatus === 'REFINEMENT') {
-                        matchesStatus = !!tc.tags?.includes('개선 필요')
-                      } else if (selectedStatus === 'POLICY') {
-                        matchesStatus = !!tc.tags?.includes('정책 확인 필요')
-                      } else {
-                        matchesStatus = tc.status === selectedStatus
-                      }
-                      const matchesSearch = searchQuery === '' || tc.title.toLowerCase().includes(searchQuery.toLowerCase()) || tc.tc_code?.toLowerCase().includes(searchQuery.toLowerCase())
-                      return matchesOS && matchesStatus && matchesSearch
-                    })
+                    const childCases = projectTestCases.filter(tc => tc.group_id === childGroup.id)
+                    const visibleChildCases = getVisibleCasesForGroup(childGroup)
                     const childTotalCount = childCases.length
                     const childPassCount = childCases.filter(c => c.status === 'PASS').length
 
@@ -1118,7 +1260,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                                       }`}
                                     >
                                       <div className="flex items-start sm:items-center gap-3">
-                                        {renderStatusBadge(tc.status)}
+                                        {renderCaseDecisionBadge(tc)}
                                         {tc.tc_code && (
                                           <span className="font-mono font-bold text-[11px] text-cyan-400 bg-cyan-950/20 px-1.5 py-0.5 rounded border border-cyan-800/10 shrink-0">
                                             {tc.tc_code}
@@ -1186,14 +1328,69 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
             </div>
           )
         }))}
+        {renderableGroups.length > GROUPS_PER_PAGE && (
+          <div className="sticky bottom-0 z-10 flex flex-col gap-3 rounded-2xl border border-border-color bg-[#0D0E12] p-3 shadow-[0_-18px_24px_rgba(13,14,18,0.95)] sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-xs font-semibold text-zinc-500">
+              {visibleStartNumber}-{visibleEndNumber} / {renderableGroups.length}개 기능 분류
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handlePageChange(safeCurrentPage - 1)}
+                disabled={safeCurrentPage === 1}
+                className="rounded-lg border border-border-color bg-[#151821] px-3 py-1.5 text-xs font-bold text-zinc-300 transition hover:border-zinc-700 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                이전
+              </button>
+              <div className="flex items-center gap-1">
+                {Array.from({ length: totalPages }, (_, index) => index + 1).map(page => (
+                  <button
+                    key={page}
+                    type="button"
+                    onClick={() => handlePageChange(page)}
+                    className={`h-8 min-w-8 rounded-lg border px-2 text-xs font-black transition ${
+                      page === safeCurrentPage
+                        ? 'border-accent-green bg-accent-green text-black'
+                        : 'border-border-color bg-[#151821] text-zinc-400 hover:border-zinc-700 hover:text-white'
+                    }`}
+                    aria-current={page === safeCurrentPage ? 'page' : undefined}
+                  >
+                    {page}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => handlePageChange(safeCurrentPage + 1)}
+                disabled={safeCurrentPage === totalPages}
+                className="rounded-lg border border-border-color bg-[#151821] px-3 py-1.5 text-xs font-bold text-zinc-300 transition hover:border-zinc-700 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                다음
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
+      {activeTestCase && isDetailExpanded && (
+        <button
+          type="button"
+          aria-label="확대 상세 패널 닫기"
+          className="fixed inset-0 z-50 cursor-default bg-black/65 backdrop-blur-sm"
+          onClick={() => setIsDetailExpanded(false)}
+        />
+      )}
+
       {activeTestCase && (
-        <aside className="sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto rounded-2xl border border-border-color bg-[#11131c]/95 p-5 shadow-2xl shadow-black/20 text-xs min-w-0">
-          <div className="flex items-start justify-between gap-4 border-b border-zinc-900 pb-4">
+        <aside className={`min-w-0 overflow-y-auto border border-border-color bg-[#11131c]/95 p-5 text-xs shadow-2xl shadow-black/20 ${
+          isDetailExpanded
+            ? 'fixed left-1/2 top-1/2 z-[60] h-[88vh] w-[88vw] max-w-[1120px] -translate-x-1/2 -translate-y-1/2 rounded-2xl'
+            : 'h-full rounded-2xl'
+        }`}>
+          <div className="sticky top-0 z-10 -mx-5 -mt-5 flex items-start justify-between gap-4 border-b border-zinc-900 bg-[#11131c] px-5 py-4">
             <div className="space-y-3 min-w-0">
               <div className="flex items-center gap-2">
-                {renderStatusBadge(activeTestCase.status)}
+                {renderCaseDecisionBadge(activeTestCase)}
                 {activeGroupParts.testCategory && (
                   <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded text-[10px] font-extrabold ${getPastelColor(activeGroupParts.testCategory)}`}>
                     {activeGroupParts.testCategory}
@@ -1206,35 +1403,91 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                 )}
               </div>
               <h3 className="text-lg font-black text-white leading-tight break-words">
-                {activeTestCase.tc_code && <span className="font-mono">{activeTestCase.tc_code} </span>}
                 {activeTestCase.title}
               </h3>
             </div>
-            <button
-              onClick={closeDetailPanel}
-              className="rounded-full border border-zinc-800 px-2.5 py-1 text-zinc-400 hover:text-white hover:border-zinc-600 transition cursor-pointer"
-              aria-label="상세 패널 닫기"
-            >
-              ✕
-            </button>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <button
+                onClick={() => setIsDetailExpanded((prev) => !prev)}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-800 text-zinc-400 transition hover:border-zinc-600 hover:text-white cursor-pointer"
+                aria-label={isDetailExpanded ? '상세 패널 축소' : '상세 패널 확대'}
+                title={isDetailExpanded ? '상세 패널 축소' : '상세 패널 확대'}
+              >
+                {isDetailExpanded ? <CollapseIcon /> : <ExpandIcon />}
+              </button>
+              <button
+                onClick={closeDetailPanel}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-600 transition cursor-pointer"
+                aria-label="상세 패널 닫기"
+              >
+                ✕
+              </button>
+            </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 py-4 border-b border-zinc-900">
-            <div>
-              <div className="text-[10px] text-zinc-500 font-bold uppercase">테스트 타입</div>
-              <div className="mt-1 font-bold text-zinc-200">{activeGroupParts.displayTitle || '-'}</div>
+          <div className="rounded-xl border border-border-color bg-[#090A0D]/50 p-3.5 space-y-3.5 mt-4">
+            <div className="flex items-center justify-between border-b border-zinc-900 pb-2">
+              <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">TEST CASE INFO</span>
+              <button
+                onClick={() => handleSaveMetadata(activeTestCase.id)}
+                className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold rounded-lg transition duration-200 text-[10px] cursor-pointer border border-zinc-700/60"
+              >
+                저장
+              </button>
             </div>
-            <div>
-              <div className="text-[10px] text-zinc-500 font-bold uppercase">실행일</div>
-              <div className="mt-1 font-mono text-zinc-200">{activeTestCase.execution_date || metadataState[activeTestCase.id]?.execution_date || '-'}</div>
-            </div>
-            <div>
-              <div className="text-[10px] text-zinc-500 font-bold uppercase">OS</div>
-              <div className="mt-1 font-bold text-zinc-200">{activeTestCase.os || '-'}</div>
-            </div>
-            <div>
-              <div className="text-[10px] text-zinc-500 font-bold uppercase">테스터</div>
-              <div className="mt-1 font-bold text-zinc-200">{activeTestCase.tester || metadataState[activeTestCase.id]?.testers || '-'}</div>
+            <div className="grid grid-cols-2 gap-3 text-left">
+              <div>
+                <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">TC CODE</div>
+                <div className="mt-1 font-mono font-bold text-zinc-200">{activeTestCase.tc_code || '-'}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">DECISION</div>
+                <div className="mt-1 font-bold text-zinc-200">{getDecisionLabel(activeTestCase)}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">OS</div>
+                <div className="mt-1 font-bold text-zinc-200">{activeTestCase.os || '-'}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">APP VERSION</div>
+                <input
+                  type="text"
+                  value={metadataState[activeTestCase.id]?.app_version || ''}
+                  onChange={(e) => updateMetadataField(activeTestCase.id, 'app_version', e.target.value)}
+                  placeholder="입력..."
+                  className="w-full bg-[#11131c]/60 border border-border-color rounded-lg px-2.5 py-1.5 text-zinc-200 mt-1 text-xs outline-none focus:border-zinc-700 font-mono font-bold"
+                />
+              </div>
+              <div>
+                <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">TESTERS</div>
+                <input
+                  type="text"
+                  value={metadataState[activeTestCase.id]?.testers || activeTestCase.tester || ''}
+                  onChange={(e) => updateMetadataField(activeTestCase.id, 'testers', e.target.value)}
+                  placeholder="입력..."
+                  className="w-full bg-[#11131c]/60 border border-border-color rounded-lg px-2.5 py-1.5 text-zinc-200 mt-1 text-xs outline-none focus:border-zinc-700 font-bold"
+                />
+              </div>
+              <div>
+                <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">DEVICE</div>
+                <input
+                  type="text"
+                  value={metadataState[activeTestCase.id]?.device || ''}
+                  onChange={(e) => updateMetadataField(activeTestCase.id, 'device', e.target.value)}
+                  placeholder="입력..."
+                  className="w-full bg-[#11131c]/60 border border-border-color rounded-lg px-2.5 py-1.5 text-zinc-200 mt-1 text-xs outline-none focus:border-zinc-700 font-bold"
+                />
+              </div>
+              <div>
+                <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">EXECUTION DATE</div>
+                <input
+                  type="text"
+                  value={metadataState[activeTestCase.id]?.execution_date || activeTestCase.execution_date || ''}
+                  onChange={(e) => updateMetadataField(activeTestCase.id, 'execution_date', e.target.value)}
+                  placeholder="입력..."
+                  className="w-full bg-[#11131c]/60 border border-border-color rounded-lg px-2.5 py-1.5 text-zinc-200 mt-1 text-xs outline-none focus:border-zinc-700 font-mono font-bold"
+                />
+              </div>
             </div>
           </div>
 
@@ -1335,71 +1588,67 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
               </div>
             </div>
 
-            <div className="rounded-xl border border-border-color bg-[#090A0D]/50 p-3.5 space-y-3.5">
-              <div className="flex items-center justify-between border-b border-zinc-900 pb-2">
-                <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">ENVIRONMENT METADATA</span>
+            <div className="space-y-3 border-t border-zinc-900 pt-4">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">DECISION ACTION</div>
+              <div className="grid grid-cols-2 gap-2 rounded-2xl border border-border-color bg-[#090A0D]/50 p-3">
                 <button
-                  onClick={() => handleSaveMetadata(activeTestCase.id)}
-                  className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold rounded-lg transition duration-200 text-[10px] cursor-pointer border border-zinc-700/60"
+                  type="button"
+                  onClick={() => updateStatus(activeTestCase.id, 'PASS')}
+                  className={`rounded-xl border px-3 py-2 text-center text-[11px] font-black transition cursor-pointer ${
+                    activeTestCase.status === 'PASS'
+                      ? 'border-accent-green/40 bg-accent-green/10 text-accent-green'
+                      : 'border-zinc-800 bg-[#11131c] text-zinc-400 hover:border-accent-green/30 hover:text-accent-green'
+                  }`}
                 >
-                  저장
+                  PASS
                 </button>
-              </div>
-              <div className="grid grid-cols-2 gap-3 text-left">
-                <div>
-                  <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">APP VERSION</div>
-                  <input
-                    type="text"
-                    value={metadataState[activeTestCase.id]?.app_version || ''}
-                    onChange={(e) => updateMetadataField(activeTestCase.id, 'app_version', e.target.value)}
-                    placeholder="입력..."
-                    className="w-full bg-[#11131c]/60 border border-border-color rounded-lg px-2.5 py-1.5 text-zinc-200 mt-1 text-xs outline-none focus:border-zinc-700 font-mono font-bold"
-                  />
-                </div>
-                <div>
-                  <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">DEVICE</div>
-                  <input
-                    type="text"
-                    value={metadataState[activeTestCase.id]?.device || ''}
-                    onChange={(e) => updateMetadataField(activeTestCase.id, 'device', e.target.value)}
-                    placeholder="입력..."
-                    className="w-full bg-[#11131c]/60 border border-border-color rounded-lg px-2.5 py-1.5 text-zinc-200 mt-1 text-xs outline-none focus:border-zinc-700 font-bold"
-                  />
-                </div>
-                <div>
-                  <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">TESTERS</div>
-                  <input
-                    type="text"
-                    value={metadataState[activeTestCase.id]?.testers || ''}
-                    onChange={(e) => updateMetadataField(activeTestCase.id, 'testers', e.target.value)}
-                    placeholder="입력..."
-                    className="w-full bg-[#11131c]/60 border border-border-color rounded-lg px-2.5 py-1.5 text-zinc-200 mt-1 text-xs outline-none focus:border-zinc-700 font-bold"
-                  />
-                </div>
-                <div>
-                  <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">EXECUTION DATE</div>
-                  <input
-                    type="text"
-                    value={metadataState[activeTestCase.id]?.execution_date || ''}
-                    onChange={(e) => updateMetadataField(activeTestCase.id, 'execution_date', e.target.value)}
-                    placeholder="입력..."
-                    className="w-full bg-[#11131c]/60 border border-border-color rounded-lg px-2.5 py-1.5 text-zinc-200 mt-1 text-xs outline-none focus:border-zinc-700 font-mono font-bold"
-                  />
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setPendingFailTcId(activeTestCase.id)}
+                  className={`rounded-xl border px-3 py-2 text-center text-[11px] font-black transition cursor-pointer ${
+                    activeTestCase.status === 'FAIL'
+                      ? 'border-accent-red/40 bg-accent-red/10 text-accent-red'
+                      : 'border-zinc-800 bg-[#11131c] text-zinc-400 hover:border-accent-red/30 hover:text-accent-red'
+                  }`}
+                >
+                  {activeTestCase.status === 'FAIL' ? getDecisionLabel(activeTestCase) : 'FAIL'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateStatus(activeTestCase.id, 'UNTESTED')}
+                  className={`rounded-xl border px-3 py-2 text-center text-[11px] font-black transition cursor-pointer ${
+                    activeTestCase.status === 'UNTESTED'
+                      ? 'border-zinc-600 bg-zinc-800/70 text-zinc-100'
+                      : 'border-zinc-800 bg-[#11131c] text-zinc-400 hover:border-zinc-600 hover:text-zinc-200'
+                  }`}
+                >
+                  미실시
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updatePolicyStatus(activeTestCase.id)}
+                  className={`rounded-xl border px-3 py-2 text-center text-[11px] font-black transition cursor-pointer ${
+                    activeTestCase.status === 'POLICY_REVIEW'
+                      ? 'border-purple-500/40 bg-purple-500/10 text-purple-400'
+                      : 'border-zinc-800 bg-[#11131c] text-zinc-400 hover:border-purple-500/30 hover:text-purple-400'
+                  }`}
+                >
+                  정책 검토
+                </button>
               </div>
             </div>
 
-            <div className="space-y-3 border-t border-zinc-900 pt-4">
+            <div className="mt-2 space-y-3 rounded-2xl border border-border-color bg-[#090A0D]/35 p-4 shadow-inner shadow-black/20">
               <div className="flex items-center gap-2 font-bold text-zinc-400">
                 REVIEW & COMMENTS
                 <span className="rounded bg-zinc-800 px-2 py-0.5 font-mono text-[10px] text-zinc-400">{activeComments.length}</span>
               </div>
-              <div className="space-y-3">
+              <div className="border-t border-zinc-800 pt-3 space-y-3">
                 {activeComments.length > 0 ? (
                   activeComments.map((com, idx) => (
-                    <div key={idx} className="border-b border-zinc-900 pb-3 leading-relaxed">
+                    <div key={idx} className="rounded-xl border border-zinc-900 bg-[#11131c]/60 p-3 leading-relaxed">
                       <div className="flex items-center justify-between gap-2 text-[11px]">
-                        <span className="font-bold text-zinc-200">{com.author} <span className="text-zinc-500 font-medium">({com.role})</span></span>
+                        <span className="font-bold text-zinc-200">{com.author}</span>
                         <span className="font-mono text-zinc-600">{com.date}</span>
                       </div>
                       <p className="mt-1 text-zinc-400">{com.text}</p>
@@ -1435,75 +1684,19 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                 </button>
               </div>
             </div>
-
-            <div className="space-y-2 border-t border-zinc-900 pt-4">
-              <Button variant="outline" size="sm" className="hover:border-accent-green hover:text-accent-green w-full" onClick={() => updateStatus(activeTestCase.id, 'PASS')}>PASS 로 판정 완료</Button>
-              <Button variant="outline" size="sm" className="hover:border-accent-red hover:text-accent-red w-full" onClick={() => updateStatus(activeTestCase.id, 'FAIL')}>FAIL 로 판정 완료</Button>
-              <Button variant="outline" size="sm" className="hover:border-zinc-500 hover:text-zinc-300 w-full" onClick={() => updateStatus(activeTestCase.id, 'UNTESTED')}>미실시 상태로 변경</Button>
-
-              <div className="grid grid-cols-2 gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => toggleTag(activeTestCase.id, '개선 필요')}
-                  className={`px-2 py-1.5 rounded-lg border text-[11px] font-black transition-all cursor-pointer ${
-                    activeTestCase.tags?.includes('개선 필요')
-                      ? 'bg-yellow-500/10 border-yellow-500/40 text-yellow-500'
-                      : 'border-zinc-800 hover:border-zinc-700 text-zinc-400'
-                  }`}
-                >
-                  개선 필요 {activeTestCase.tags?.includes('개선 필요') ? '✓' : ''}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => toggleTag(activeTestCase.id, '정책 확인 필요')}
-                  className={`px-2 py-1.5 rounded-lg border text-[11px] font-black transition-all cursor-pointer ${
-                    activeTestCase.tags?.includes('정책 확인 필요')
-                      ? 'bg-purple-500/10 border-purple-500/40 text-purple-400'
-                      : 'border-zinc-800 hover:border-zinc-700 text-zinc-400'
-                  }`}
-                >
-                  정책 확인 필요 {activeTestCase.tags?.includes('정책 확인 필요') ? '✓' : ''}
-                </button>
-              </div>
-
-              {activeTestCase.tags?.includes('개선 필요') && (
-                <div className="mt-2 space-y-1.5 bg-[#151821]/40 border border-yellow-500/20 rounded-xl p-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-yellow-500 font-bold">개선 필요 내용 입력</span>
-                    <button type="button" onClick={() => handleSaveOpinion(activeTestCase.id, 'refinement')} className="px-2 py-0.5 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-[10px] font-bold cursor-pointer">저장</button>
-                  </div>
-                  <input
-                    type="text"
-                    value={opinionTextsState[activeTestCase.id]?.refinement || ''}
-                    onChange={(e) => handleOpinionTextChange(activeTestCase.id, 'refinement', e.target.value)}
-                    placeholder="개선이 필요한 내용을 입력하세요..."
-                    className="w-full bg-[#11131c]/60 border border-zinc-800 rounded px-2.5 py-1 text-zinc-200 text-xs outline-none focus:border-yellow-500/50"
-                  />
-                </div>
-              )}
-
-              {activeTestCase.tags?.includes('정책 확인 필요') && (
-                <div className="mt-2 space-y-1.5 bg-[#151821]/40 border border-purple-500/20 rounded-xl p-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-purple-400 font-bold">정책 확인 필요 내용 입력</span>
-                    <button type="button" onClick={() => handleSaveOpinion(activeTestCase.id, 'policy')} className="px-2 py-0.5 bg-purple-500 hover:bg-purple-600 text-white rounded text-[10px] font-bold cursor-pointer">저장</button>
-                  </div>
-                  <input
-                    type="text"
-                    value={opinionTextsState[activeTestCase.id]?.policy || ''}
-                    onChange={(e) => handleOpinionTextChange(activeTestCase.id, 'policy', e.target.value)}
-                    placeholder="정책 확인이 필요한 내용을 입력하세요..."
-                    className="w-full bg-[#11131c]/60 border border-zinc-800 rounded px-2.5 py-1 text-zinc-200 text-xs outline-none focus:border-purple-500/50"
-                  />
-                </div>
-              )}
-            </div>
           </div>
         </aside>
       )}
 
       {activeTestCase && showImageViewer && (
-        <aside className="sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto rounded-2xl border border-border-color bg-[#11131c]/95 p-5 shadow-2xl shadow-black/20 text-xs min-w-0">
+        <>
+        <button
+          type="button"
+          aria-label="이미지 뷰어 닫기"
+          className="fixed inset-0 z-[65] cursor-default bg-black/65 backdrop-blur-sm"
+          onClick={() => setShowImageViewer(false)}
+        />
+        <aside className="fixed left-1/2 top-1/2 z-[70] h-[86vh] w-[86vw] max-w-[1080px] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-2xl border border-border-color bg-[#11131c]/95 p-5 shadow-2xl shadow-black/40 text-xs">
           <div className="flex items-center justify-between border-b border-zinc-900 pb-4">
             <h3 className="text-lg font-black text-white">이미지 보기</h3>
             <button
@@ -1552,8 +1745,46 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
             </button>
           </div>
         </aside>
+        </>
       )}
       </div>
+
+      {pendingFailTcId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-border-color bg-[#11131c] p-5 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-border-color pb-3 mb-4">
+              <h3 className="text-base font-black text-white">FAIL 유형 선택</h3>
+              <button
+                type="button"
+                onClick={() => setPendingFailTcId(null)}
+                className="text-zinc-500 hover:text-zinc-300 text-sm cursor-pointer"
+                aria-label="FAIL 유형 선택 닫기"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="mb-4 text-xs leading-relaxed text-zinc-400">
+              실제 기능 결함이면 BUG, 사용성 개선 요청이면 UX ISSUE를 선택해 주세요.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => updateFailType(pendingFailTcId, 'BUG')}
+                className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-xs font-black text-red-300 transition hover:bg-red-500/15 cursor-pointer"
+              >
+                BUG
+              </button>
+              <button
+                type="button"
+                onClick={() => updateFailType(pendingFailTcId, 'UX_ISSUE')}
+                className="rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-xs font-black text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800 cursor-pointer"
+              >
+                UX ISSUE
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 4. Add TestCase Modal */}
       {isAddModalOpen && (
@@ -1579,8 +1810,8 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
               <div className="space-y-1">
                 <div className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">기능 분류 (Category Group)</div>
                 <div className="text-sm font-bold text-zinc-100">
-                  {categoryGroups.find(g => g.id === selectedAddGroupId)
-                    ? getFullGroupTitle(categoryGroups.find(g => g.id === selectedAddGroupId)!)
+                  {projectCategoryGroups.find(g => g.id === selectedAddGroupId)
+                    ? getFullGroupTitle(projectCategoryGroups.find(g => g.id === selectedAddGroupId)!)
                     : '기능 분류가 선택되지 않았습니다'}
                 </div>
               </div>
@@ -1982,10 +2213,10 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                     onChange={(e) => setEditTcGroupId(e.target.value)}
                     className="w-full bg-[#090A0D] border border-border-color rounded-xl px-3 py-2.5 text-xs text-zinc-300 outline-none cursor-pointer focus:border-zinc-700"
                   >
-                    {categoryGroups.length === 0 ? (
+                    {projectCategoryGroups.length === 0 ? (
                       <option value="">(기능 분류를 먼저 생성해 주세요)</option>
                     ) : (
-                      categoryGroups.map(g => (
+                      projectCategoryGroups.map(g => (
                         <option key={g.id} value={g.id}>
                           {g.title.includes('|||') ? `${g.title.split('|||')[0]} [${g.title.split('|||')[1]}]` : g.title}
                         </option>

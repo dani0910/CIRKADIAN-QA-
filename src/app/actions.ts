@@ -164,10 +164,14 @@ export async function createTestCase(params: {
   revalidatePath('/')
 }
 
-export async function createCategoryGroup(projectId: string, title: string, testCategory?: string) {
+export async function createCategoryGroup(
+  projectId: string,
+  title: string,
+  testCategory?: string,
+  parentId?: string | null,
+  displayOrder?: number | null
+) {
   const supabase = await createClient()
-
-  const finalTitle = testCategory?.trim() ? `${title.trim()}|||${testCategory.trim()}` : title.trim()
 
   const { data, error } = await supabase
     .from('category_groups')
@@ -175,7 +179,10 @@ export async function createCategoryGroup(projectId: string, title: string, test
       {
         id: randomUUID(),
         project_id: projectId,
-        title: finalTitle,
+        parent_id: parentId || null,
+        title: title.trim(),
+        test_category: testCategory?.trim() || null,
+        display_order: displayOrder ?? 0,
       }
     ])
     .select()
@@ -189,7 +196,7 @@ export async function createCategoryGroup(projectId: string, title: string, test
 }
 
 export async function updateTestCaseResult(tcId: string, params: {
-  status?: 'PASS' | 'FAIL' | 'UNTESTED'
+  status?: 'PASS' | 'FAIL' | 'UNTESTED' | 'POLICY_REVIEW'
   tags?: string[] | null
   actualResult?: string | null
   evidenceUrls?: string[]
@@ -197,6 +204,7 @@ export async function updateTestCaseResult(tcId: string, params: {
   device?: string | null
   testers?: string | null
   executionDate?: string | null
+  failType?: 'BUG' | 'UX_ISSUE' | null
 }) {
   const supabase = await createClient()
 
@@ -232,6 +240,9 @@ export async function updateTestCaseResult(tcId: string, params: {
   }
   if (params.executionDate !== undefined) {
     detailUpdates.execution_date = params.executionDate
+  }
+  if (params.failType !== undefined) {
+    detailUpdates.fail_type = params.failType
   }
 
   if (Object.keys(detailUpdates).length > 0) {
@@ -304,97 +315,41 @@ export async function uploadTestCaseEvidence(tcId: string, formData: FormData) {
 
 export async function addTestCaseComment(tcId: string, comment: {
   author: string
-  role: string
   text: string
   date: string
 }) {
   const supabase = await createClient()
 
-  const { data: detail, error: fetchError } = await supabase
-    .from('tc_details')
-    .select('comments')
-    .eq('id', tcId)
-    .single()
+  const { error: insertError } = await supabase
+    .from('tc_comments')
+    .insert({
+      test_case_id: tcId,
+      author: comment.author,
+      body: comment.text,
+    })
+
+  if (insertError) {
+    throw new Error(`Failed to save comment: ${insertError.message}`)
+  }
+
+  const { data, error: fetchError } = await supabase
+    .from('tc_comments')
+    .select('*')
+    .eq('test_case_id', tcId)
+    .order('created_at', { ascending: true })
 
   if (fetchError) {
-    throw new Error(`Failed to fetch test case details: ${fetchError.message}`)
-  }
-
-  let nextComments: any;
-  const currentComments = detail?.comments;
-
-  if (Array.isArray(currentComments)) {
-    nextComments = [...currentComments, comment];
-  } else if (currentComments && typeof currentComments === 'object') {
-    const list = (currentComments as any).list || [];
-    nextComments = {
-      ...(currentComments as any),
-      list: [...list, comment]
-    };
-  } else {
-    nextComments = [comment];
-  }
-
-  const { error: updateError } = await supabase
-    .from('tc_details')
-    .update({ comments: nextComments })
-    .eq('id', tcId)
-
-  if (updateError) {
-    throw new Error(`Failed to save comment: ${updateError.message}`)
+    throw new Error(`Failed to fetch comments: ${fetchError.message}`)
   }
 
   revalidatePath('/')
-  return Array.isArray(nextComments) ? nextComments : nextComments.list;
-}
-
-export async function updateOpinionText(tcId: string, type: 'refinement' | 'policy', text: string) {
-  const supabase = await createClient()
-
-  const { data: detail, error: fetchError } = await supabase
-    .from('tc_details')
-    .select('comments')
-    .eq('id', tcId)
-    .single()
-
-  if (fetchError) {
-    throw new Error(`Failed to fetch test case details: ${fetchError.message}`)
-  }
-
-  let nextComments: any;
-  const currentComments = detail?.comments;
-
-  if (Array.isArray(currentComments)) {
-    nextComments = {
-      list: currentComments,
-      refinement_text: type === 'refinement' ? text : '',
-      policy_text: type === 'policy' ? text : ''
-    };
-  } else if (currentComments && typeof currentComments === 'object') {
-    nextComments = {
-      ...(currentComments as any),
-      refinement_text: type === 'refinement' ? text : ((currentComments as any).refinement_text || ''),
-      policy_text: type === 'policy' ? text : ((currentComments as any).policy_text || '')
-    };
-  } else {
-    nextComments = {
-      list: [],
-      refinement_text: type === 'refinement' ? text : '',
-      policy_text: type === 'policy' ? text : ''
-    };
-  }
-
-  const { error: updateError } = await supabase
-    .from('tc_details')
-    .update({ comments: nextComments })
-    .eq('id', tcId)
-
-  if (updateError) {
-    throw new Error(`Failed to save opinion text: ${updateError.message}`)
-  }
-
-  revalidatePath('/')
-  return nextComments;
+  return (data || []).map(commentRow => ({
+    author: commentRow.author,
+    text: commentRow.body,
+    date: commentRow.created_at
+      ? new Date(commentRow.created_at).toLocaleDateString('ko-KR')
+      : '',
+  }))
 }
 
 export async function deleteProject(projectId: string) {
@@ -459,12 +414,11 @@ export async function deleteProject(projectId: string) {
 export async function updateCategoryGroup(groupId: string, title: string, testCategory?: string) {
   const supabase = await createClient()
 
-  const finalTitle = testCategory?.trim() ? `${title.trim()}|||${testCategory.trim()}` : title.trim()
-
   const { error } = await supabase
     .from('category_groups')
     .update({
-      title: finalTitle
+      title: title.trim(),
+      test_category: testCategory?.trim() || null,
     })
     .eq('id', groupId)
 
@@ -478,11 +432,22 @@ export async function updateCategoryGroup(groupId: string, title: string, testCa
 export async function deleteCategoryGroup(groupId: string) {
   const supabase = await createClient()
 
+  const { data: childGroups, error: childFetchError } = await supabase
+    .from('category_groups')
+    .select('id')
+    .eq('parent_id', groupId)
+
+  if (childFetchError) {
+    throw new Error(`Failed to fetch child category groups: ${childFetchError.message}`)
+  }
+
+  const groupIds = [groupId, ...(childGroups || []).map(group => group.id)]
+
   // 1. Fetch test cases of the category group to delete their details
   const { data: testCases, error: fetchError } = await supabase
     .from('test_cases')
     .select('id')
-    .eq('group_id', groupId)
+    .in('group_id', groupIds)
 
   if (fetchError) {
     throw new Error(`Failed to fetch test cases for category deletion: ${fetchError.message}`)
@@ -505,17 +470,17 @@ export async function deleteCategoryGroup(groupId: string) {
   const { error: tcDeleteError } = await supabase
     .from('test_cases')
     .delete()
-    .eq('group_id', groupId)
+    .in('group_id', groupIds)
 
   if (tcDeleteError) {
     throw new Error(`Failed to delete test cases: ${tcDeleteError.message}`)
   }
 
-  // 4. Delete category group itself
+  // 4. Delete child category groups and the category group itself
   const { error: groupDeleteError } = await supabase
     .from('category_groups')
     .delete()
-    .eq('id', groupId)
+    .in('id', groupIds)
 
   if (groupDeleteError) {
     throw new Error(`Failed to delete category group: ${groupDeleteError.message}`)

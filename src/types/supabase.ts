@@ -46,19 +46,28 @@ export interface Database {
         Row: {
           id: string
           project_id: string
+          parent_id: string | null
           title: string
+          test_category: string | null
+          display_order: number | null
           created_at: string
         }
         Insert: {
           id?: string
           project_id: string
+          parent_id?: string | null
           title: string
+          test_category?: string | null
+          display_order?: number | null
           created_at?: string
         }
         Update: {
           id?: string
           project_id?: string
+          parent_id?: string | null
           title?: string
+          test_category?: string | null
+          display_order?: number | null
           created_at?: string
         }
         Relationships: [
@@ -67,6 +76,13 @@ export interface Database {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "category_groups_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "category_groups"
             referencedColumns: ["id"]
           }
         ]
@@ -82,7 +98,7 @@ export interface Database {
           tester: string | null
           execution_date: string | null
           title: string
-          status: 'PASS' | 'FAIL' | 'UNTESTED' | 'BLOCK'
+          status: 'PASS' | 'FAIL' | 'UNTESTED' | 'POLICY_REVIEW'
           created_at: string
         }
         Insert: {
@@ -95,7 +111,7 @@ export interface Database {
           tester?: string | null
           execution_date?: string | null
           title: string
-          status?: 'PASS' | 'FAIL' | 'UNTESTED' | 'BLOCK'
+          status?: 'PASS' | 'FAIL' | 'UNTESTED' | 'POLICY_REVIEW'
           created_at?: string
         }
         Update: {
@@ -108,7 +124,7 @@ export interface Database {
           tester?: string | null
           execution_date?: string | null
           title?: string
-          status?: 'PASS' | 'FAIL' | 'UNTESTED' | 'BLOCK'
+          status?: 'PASS' | 'FAIL' | 'UNTESTED' | 'POLICY_REVIEW'
           created_at?: string
         }
         Relationships: [
@@ -130,6 +146,7 @@ export interface Database {
           prerequisites: string[] | null
           expected_result: string | null
           actual_result: string | null
+          fail_type: 'BUG' | 'UX_ISSUE' | null
           app_version: string | null
           device: string | null
           testers: string | null
@@ -146,6 +163,7 @@ export interface Database {
           prerequisites?: string[] | null
           expected_result?: string | null
           actual_result?: string | null
+          fail_type?: 'BUG' | 'UX_ISSUE' | null
           app_version?: string | null
           device?: string | null
           testers?: string | null
@@ -162,6 +180,7 @@ export interface Database {
           prerequisites?: string[] | null
           expected_result?: string | null
           actual_result?: string | null
+          fail_type?: 'BUG' | 'UX_ISSUE' | null
           app_version?: string | null
           device?: string | null
           testers?: string | null
@@ -175,6 +194,38 @@ export interface Database {
             foreignKeyName: "tc_details_id_fkey"
             columns: ["id"]
             isOneToOne: true
+            referencedRelation: "test_cases"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      tc_comments: {
+        Row: {
+          id: string
+          test_case_id: string
+          author: string
+          body: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          test_case_id: string
+          author: string
+          body: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          test_case_id?: string
+          author?: string
+          body?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tc_comments_test_case_id_fkey"
+            columns: ["test_case_id"]
+            isOneToOne: false
             referencedRelation: "test_cases"
             referencedColumns: ["id"]
           }

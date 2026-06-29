@@ -201,6 +201,9 @@ export function useDashboardStats({
   const untested = filteredCases.filter(
     (tc) => tc.status === "UNTESTED",
   ).length;
+  const policyReviewCount = filteredCases.filter(
+    (tc) => tc.status === "POLICY_REVIEW",
+  ).length;
 
   const executed = passCount + failCount;
   const openIssues = Math.round(failCount * 0.32) || 0; // ~32% of failCount is open issues
@@ -240,6 +243,13 @@ export function useDashboardStats({
       percent:
         total > 0 ? parseFloat(((untested / total) * 100).toFixed(1)) : 0,
       color: "#8C5FFF",
+    },
+    {
+      label: "정책 검토",
+      count: policyReviewCount,
+      percent:
+        total > 0 ? parseFloat(((policyReviewCount / total) * 100).toFixed(1)) : 0,
+      color: "#A855F7",
     },
   ];
 
