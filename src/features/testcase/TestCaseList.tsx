@@ -1,10 +1,10 @@
 'use client'
 
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { supabase } from '@/lib/supabase'
-import { createTestCase, createCategoryGroup, updateTestCaseResult, uploadTestCaseEvidence, addTestCaseComment, updateOpinionText, updateCategoryGroup, deleteCategoryGroup, updateTestCase, deleteTestCase } from '@/app/actions'
+import { createTestCase, createCategoryGroup, updateTestCaseResult, uploadTestCaseEvidence, addTestCaseComment, updateCategoryGroup, deleteCategoryGroup, updateTestCase, deleteTestCase } from '@/app/actions'
 
 const getPastelColor = (str: string) => {
   let hash = 0;
@@ -84,8 +84,8 @@ const EditActionButton = ({
   </button>
 )
 
-const DECISION_TAGS = ['정책 확인 필요', '개선 필요', 'BUG', 'UX ISSUE']
-type FailType = 'BUG' | 'UX ISSUE'
+const DECISION_TAGS = ['개선 필요', 'BUG', 'UX_ISSUE']
+type FailType = 'BUG' | 'UX_ISSUE'
 
 const GROUPS_PER_PAGE = 8
 const PLATFORM_TABS = ['ios', 'android', 'all'] as const
@@ -95,9 +95,27 @@ interface TestCaseListProps {
   categoryGroups: CategoryGroup[]
   testCases: TestCase[]
   tcDetails: TCDetail[]
+  tcComments?: TCComment[]
 }
 
-export default function TestCaseList({ projectId, categoryGroups, testCases: initialTestCases, tcDetails }: TestCaseListProps) {
+const mapDbComments = (comments: TCComment[] = []) =>
+  comments.map(comment => ({
+    author: comment.author,
+    text: comment.body,
+    date: comment.created_at ? new Date(comment.created_at).toLocaleDateString('ko-KR') : ''
+  }))
+
+const legacyCommentsFromDetail = (detail: TCDetail) => {
+  if (Array.isArray(detail.comments)) {
+    return detail.comments
+  }
+  if (detail.comments && typeof detail.comments === 'object') {
+    return (detail.comments as any).list || []
+  }
+  return []
+}
+
+export default function TestCaseList({ projectId, categoryGroups, testCases: initialTestCases, tcDetails, tcComments = [] }: TestCaseListProps) {
   const [testCases, setTestCases] = useState<TestCase[]>(initialTestCases)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -113,31 +131,16 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
   const [rotationAngle, setRotationAngle] = useState(0)
 
   // Comments, image gallery switcher, and uploads states mapped by TestCase ID
-  const [commentsState, setCommentsState] = useState<Record<string, { author: string; role: string; text: string; date: string }[]>>(() => {
+  const [commentsState, setCommentsState] = useState<Record<string, { author: string; text: string; date: string }[]>>(() => {
     const initial: Record<string, any> = {}
+    const commentsByTcId = tcComments.reduce<Record<string, TCComment[]>>((acc, comment) => {
+      acc[comment.test_case_id] = [...(acc[comment.test_case_id] || []), comment]
+      return acc
+    }, {})
     tcDetails.forEach(detail => {
-      if (Array.isArray(detail.comments)) {
-        initial[detail.id] = detail.comments
-      } else if (detail.comments && typeof detail.comments === 'object') {
-        initial[detail.id] = (detail.comments as any).list || []
-      } else {
-        initial[detail.id] = []
-      }
-    })
-    return initial
-  })
-
-  const [opinionTextsState, setOpinionTextsState] = useState<Record<string, { refinement: string; policy: string }>>(() => {
-    const initial: Record<string, { refinement: string; policy: string }> = {}
-    tcDetails.forEach(detail => {
-      if (detail.comments && typeof detail.comments === 'object' && !Array.isArray(detail.comments)) {
-        initial[detail.id] = {
-          refinement: (detail.comments as any).refinement_text || '',
-          policy: (detail.comments as any).policy_text || ''
-        }
-      } else {
-        initial[detail.id] = { refinement: '', policy: '' }
-      }
+      initial[detail.id] = commentsByTcId[detail.id]?.length
+        ? mapDbComments(commentsByTcId[detail.id])
+        : legacyCommentsFromDetail(detail)
     })
     return initial
   })
@@ -195,28 +198,14 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
   useEffect(() => {
     setCommentsState(prev => {
       const next = { ...prev }
+      const commentsByTcId = tcComments.reduce<Record<string, TCComment[]>>((acc, comment) => {
+        acc[comment.test_case_id] = [...(acc[comment.test_case_id] || []), comment]
+        return acc
+      }, {})
       tcDetails.forEach(detail => {
-        if (Array.isArray(detail.comments)) {
-          next[detail.id] = detail.comments
-        } else if (detail.comments && typeof detail.comments === 'object') {
-          next[detail.id] = (detail.comments as any).list || []
-        } else {
-          next[detail.id] = []
-        }
-      })
-      return next
-    })
-    setOpinionTextsState(prev => {
-      const next = { ...prev }
-      tcDetails.forEach(detail => {
-        if (detail.comments && typeof detail.comments === 'object' && !Array.isArray(detail.comments)) {
-          next[detail.id] = {
-            refinement: (detail.comments as any).refinement_text || '',
-            policy: (detail.comments as any).policy_text || ''
-          }
-        } else {
-          next[detail.id] = { refinement: '', policy: '' }
-        }
+        next[detail.id] = commentsByTcId[detail.id]?.length
+          ? mapDbComments(commentsByTcId[detail.id])
+          : legacyCommentsFromDetail(detail)
       })
       return next
     })
@@ -261,7 +250,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
       })
       return next
     })
-  }, [tcDetails])
+  }, [tcDetails, tcComments])
 
   // Filter States
   const [activeTab, setActiveTab] = useState<'all' | 'ios' | 'android'>('ios')
@@ -321,18 +310,36 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
   const [isSavingTestCase, setIsSavingTestCase] = useState(false)
   const [editTcErrorMsg, setEditTcErrorMsg] = useState('')
 
+  const projectCategoryGroups = useMemo(
+    () => categoryGroups.filter(group => !group.project_id || group.project_id === projectId),
+    [categoryGroups, projectId]
+  )
+
+  const projectTestCases = useMemo(
+    () => testCases.filter(tc => tc.project_id === projectId),
+    [testCases, projectId]
+  )
+
   useEffect(() => {
-    if (categoryGroups.length > 0) {
-      const exists = categoryGroups.some(g => g.id === newGroupId)
+    if (projectCategoryGroups.length > 0) {
+      const exists = projectCategoryGroups.some(g => g.id === newGroupId)
       if (!exists) {
-        setNewGroupId(categoryGroups[0].id)
+        setNewGroupId(projectCategoryGroups[0].id)
       }
     } else {
       if (newGroupId !== '') {
         setNewGroupId('')
       }
     }
-  }, [categoryGroups, newGroupId])
+  }, [projectCategoryGroups, newGroupId])
+
+  useEffect(() => {
+    setExpandedGroups({})
+    setActiveTcId(null)
+    setShowImageViewer(false)
+    setIsDetailExpanded(false)
+    setCurrentPage(1)
+  }, [projectId])
 
   useEffect(() => {
     if (!isDetailExpanded) return
@@ -456,12 +463,21 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
     if (!newGroupTitle.trim()) return
 
     const selectedTestCategory = categorySelectType === 'custom' ? newGroupTestCategory.trim() : categorySelectType
-    const numberedTitle = `${groupNumberPreview} ${newGroupTitle.trim()}`
+    const parentId = groupCreateMode === 'child'
+      ? parentGroupIdForChild || topGroups[0]?.id || null
+      : null
+    const displayOrder = groupCreateMode === 'parent'
+      ? getNextParentNumber()
+      : (() => {
+          const parentInfo = getParentPreviewInfo()
+          if (!parentInfo) return 1
+          return getNextChildLetter(parentInfo.number).charCodeAt(0) - 64
+        })()
 
     setIsAddingGroup(true)
     setGroupErrorMsg('')
     try {
-      await createCategoryGroup(projectId, numberedTitle, selectedTestCategory)
+      await createCategoryGroup(projectId, newGroupTitle.trim(), selectedTestCategory, parentId, displayOrder)
       setNewGroupTitle('')
       setNewGroupTestCategory('')
       setCategorySelectType('HW')
@@ -541,52 +557,28 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
     })
   }
 
-  const getDecisionTags = (tags: string[] | undefined, extraTags: string[] = []) => {
-    const currentTags = tags || []
-    return [...currentTags.filter(tag => !DECISION_TAGS.includes(tag)), ...extraTags]
-  }
-
-  const updateStatus = async (id: string, newStatus: TestCaseStatus, extraTags: string[] = []) => {
-    const target = testCases.find(tc => tc.id === id)
-    const nextTags = getDecisionTags(target?.tags, extraTags)
-
-    setTestCases(prev => prev.map(tc => tc.id === id ? { ...tc, status: newStatus, tags: nextTags } : tc))
+  const updateStatus = async (id: string, newStatus: TestCaseStatus) => {
+    setTestCases(prev => prev.map(tc => tc.id === id ? { ...tc, status: newStatus } : tc))
     
     try {
-      await updateTestCaseResult(id, { status: newStatus, tags: nextTags })
+      await updateTestCaseResult(id, { status: newStatus })
     } catch (err) {
       console.error('Failed to update status in Supabase:', err)
     }
   }
 
   const updatePolicyStatus = async (id: string) => {
-    await updateStatus(id, 'UNTESTED', ['정책 확인 필요'])
+    await updateStatus(id, 'POLICY_REVIEW')
   }
 
-  const updateFailType = async (id: string, failType: FailType) => {
-    await updateStatus(id, 'FAIL', [failType])
-    setPendingFailTcId(null)
-  }
-
-  const handleOpinionTextChange = (tcId: string, type: 'refinement' | 'policy', value: string) => {
-    setOpinionTextsState(prev => ({
-      ...prev,
-      [tcId]: {
-        ...(prev[tcId] || { refinement: '', policy: '' }),
-        [type]: value
-      }
-    }))
-  }
-
-  const handleSaveOpinion = async (tcId: string, type: 'refinement' | 'policy') => {
-    const val = opinionTextsState[tcId]?.[type] || ''
+  const updateFailType = async (id: string, _failType: FailType) => {
+    setTestCases(prev => prev.map(tc => tc.id === id ? { ...tc, status: 'FAIL' } : tc))
     try {
-      await updateOpinionText(tcId, type, val)
-      alert('의견이 성공적으로 저장되었습니다.')
+      await updateTestCaseResult(id, { status: 'FAIL', failType: _failType })
     } catch (err) {
-      console.error('Failed to save opinion:', err)
-      alert('의견 저장 중 오류가 발생했습니다.')
+      console.error('Failed to update fail type in Supabase:', err)
     }
+    setPendingFailTcId(null)
   }
 
   const handleSaveActualResult = async (tcId: string) => {
@@ -641,7 +633,6 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
 
     const newComment = {
       author: author.trim(),
-      role: 'Tester',
       text: text.trim(),
       date: new Date().toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' }) + ' ' + new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
     }
@@ -696,13 +687,15 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
     const styles = {
       PASS: 'bg-[#00BA54]/10 text-accent-green border border-[#00BA54]/20',
       FAIL: 'bg-[#DE3A3A]/10 text-[#DE3A3A] border border-[#DE3A3A]/20',
-      UNTESTED: 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+      UNTESTED: 'bg-zinc-800 text-zinc-400 border border-zinc-700',
+      POLICY_REVIEW: 'bg-purple-500/10 text-purple-400 border border-purple-500/25'
     }
 
     const labels = {
       PASS: 'PASS',
       FAIL: 'FAIL',
-      UNTESTED: '미실시'
+      UNTESTED: '미실시',
+      POLICY_REVIEW: '정책 검토'
     }
 
     return (
@@ -713,14 +706,6 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
   }
 
   const renderCaseDecisionBadge = (tc: TestCase) => {
-    if (tc.tags?.includes('정책 확인 필요')) {
-      return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black tracking-wider bg-purple-500/10 text-purple-400 border border-purple-500/25">
-          정책 확인 필요
-        </span>
-      )
-    }
-
     return (
       <span className="inline-flex items-center gap-1.5">
         {renderStatusBadge(tc.status)}
@@ -729,20 +714,18 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
   }
 
   const getDecisionLabel = (tc: TestCase) => {
-    if (tc.tags?.includes('정책 확인 필요')) return '정책 확인 필요'
+    if (tc.status === 'POLICY_REVIEW') return '정책 검토'
     if (tc.status === 'UNTESTED') return '미실시'
-    if (tc.status === 'FAIL') {
-      if (tc.tags?.includes('BUG')) return 'FAIL - BUG'
-      if (tc.tags?.includes('UX ISSUE')) return 'FAIL - UX ISSUE'
-    }
     return tc.status
   }
 
-  const getGroupTitleParts = (title: string) => {
-    const [displayTitle, testCategory] = title.split('|||')
+  const getGroupTitleParts = (groupOrTitle: CategoryGroup | string) => {
+    const title = typeof groupOrTitle === 'string' ? groupOrTitle : groupOrTitle.title
+    const storedCategory = typeof groupOrTitle === 'string' ? '' : groupOrTitle.test_category || ''
+    const [displayTitle, legacyTestCategory] = title.split('|||')
     return {
       displayTitle: displayTitle?.trim() || title,
-      testCategory: testCategory?.trim() || ''
+      testCategory: storedCategory || legacyTestCategory?.trim() || ''
     }
   }
 
@@ -751,7 +734,26 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
   }
 
   const getNumberedGroupInfo = (group: CategoryGroup, topIndex: number) => {
-    const { displayTitle, testCategory } = getGroupTitleParts(group.title)
+    const { displayTitle, testCategory } = getGroupTitleParts(group)
+    const hasStructuredShape =
+      group.parent_id !== undefined ||
+      group.display_order !== undefined ||
+      group.test_category !== undefined
+
+    if (hasStructuredShape && !/^\d+(?:-[A-Z])?\.\s*/.test(displayTitle)) {
+      const isChild = !!group.parent_id
+      const number = isChild ? topIndex + 1 : group.display_order || topIndex + 1
+      const childIndex = Math.max((group.display_order || 1) - 1, 0)
+      const letter = isChild ? String.fromCharCode(65 + childIndex) : ''
+      return {
+        number,
+        letter,
+        code: letter ? `${number}-${letter}.` : `${number}.`,
+        title: displayTitle,
+        testCategory
+      }
+    }
+
     const match = displayTitle.match(/^(\d+)(?:-([A-Z]))?\.\s*(.*)$/)
     if (match) {
       const number = Number(match[1])
@@ -773,13 +775,30 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
     }
   }
 
-  const topGroups = categoryGroups.filter(group => {
-    const { displayTitle } = getGroupTitleParts(group.title)
+  const topGroups = projectCategoryGroups.filter(group => {
+    if (group.parent_id !== undefined) return !group.parent_id
+    const { displayTitle } = getGroupTitleParts(group)
     return !/^\d+-[A-Z]\.\s*/.test(displayTitle)
+  }).sort((a, b) => {
+    const orderA = a.display_order ?? Number.MAX_SAFE_INTEGER
+    const orderB = b.display_order ?? Number.MAX_SAFE_INTEGER
+    return orderA - orderB
   })
 
-  const childGroupsByParentNumber = categoryGroups.reduce<Record<number, CategoryGroup[]>>((acc, group) => {
-    const { displayTitle } = getGroupTitleParts(group.title)
+  const childGroupsByParentNumber = projectCategoryGroups.reduce<Record<number, CategoryGroup[]>>((acc, group) => {
+    if (group.parent_id !== undefined && group.parent_id) {
+      const parentIndex = topGroups.findIndex(parent => parent.id === group.parent_id)
+      if (parentIndex < 0) return acc
+      const parentNumber = topGroups[parentIndex].display_order || parentIndex + 1
+      acc[parentNumber] = [...(acc[parentNumber] || []), group].sort((a, b) => {
+        const orderA = a.display_order ?? Number.MAX_SAFE_INTEGER
+        const orderB = b.display_order ?? Number.MAX_SAFE_INTEGER
+        return orderA - orderB
+      })
+      return acc
+    }
+
+    const { displayTitle } = getGroupTitleParts(group)
     const match = displayTitle.match(/^(\d+)-[A-Z]\.\s*/)
     if (!match) return acc
     const parentNumber = Number(match[1])
@@ -802,8 +821,9 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
   const getNextChildLetter = (parentNumber: number) => {
     const children = childGroupsByParentNumber[parentNumber] || []
     const maxIndex = children.reduce((max, child) => {
-      const { displayTitle } = getGroupTitleParts(child.title)
+      const { displayTitle } = getGroupTitleParts(child)
       const match = displayTitle.match(/^\d+-([A-Z])\.\s*/)
+      if (!match && child.display_order) return Math.max(max, child.display_order - 1)
       if (!match) return max
       return Math.max(max, match[1].charCodeAt(0) - 65)
     }, -1)
@@ -825,7 +845,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
       const info = getNumberedGroupInfo(group, parentIndex)
       return `${info.code} ${info.title}`
     }
-    const { displayTitle } = getGroupTitleParts(group.title)
+    const { displayTitle } = getGroupTitleParts(group)
     return displayTitle
   }
 
@@ -848,8 +868,8 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
       matchesStatus = true
     } else if (selectedStatus === 'REFINEMENT') {
       matchesStatus = !!tc.tags?.includes('개선 필요')
-    } else if (selectedStatus === 'POLICY') {
-      matchesStatus = !!tc.tags?.includes('정책 확인 필요')
+    } else if (selectedStatus === 'POLICY_REVIEW') {
+      matchesStatus = tc.status === 'POLICY_REVIEW'
     } else {
       matchesStatus = tc.status === selectedStatus
     }
@@ -863,7 +883,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
   }
 
   const getVisibleCasesForGroup = (group: CategoryGroup) => {
-    return testCases
+    return projectTestCases
       .filter(tc => tc.group_id === group.id)
       .filter(matchesTestCaseFilters)
   }
@@ -908,7 +928,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
   }
 
   const getVisibleTags = (tc: TestCase, group?: CategoryGroup) => {
-    const { displayTitle } = getGroupTitleParts(group?.title || '')
+    const { displayTitle } = getGroupTitleParts(group || '')
     const titleWithoutNumber = stripGroupNumber(displayTitle)
     return (tc.tags || []).filter(tag => {
       const trimmed = tag.trim()
@@ -917,14 +937,14 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
     })
   }
 
-  const activeTestCase = activeTcId ? testCases.find(tc => tc.id === activeTcId) : null
+  const activeTestCase = activeTcId ? projectTestCases.find(tc => tc.id === activeTcId) : null
   const activeDetail = activeTcId ? tcDetails.find(detail => detail.id === activeTcId) : null
-  const activeGroup = activeTestCase ? categoryGroups.find(group => group.id === activeTestCase.group_id) : undefined
+  const activeGroup = activeTestCase ? projectCategoryGroups.find(group => group.id === activeTestCase.group_id) : undefined
   const activeComments = activeTcId ? commentsState[activeTcId] || [] : []
   const activeImages = activeTcId ? imagesState[activeTcId] || [] : []
   const activeImageIndex = activeTcId ? activeImageIndexes[activeTcId] || 0 : 0
   const activePreviewUrl = activeImages[activeImageIndex] || ''
-  const activeGroupParts = getGroupTitleParts(activeGroup?.title || '')
+  const activeGroupParts = getGroupTitleParts(activeGroup || '')
 
   const closeDetailPanel = () => {
     setActiveTcId(null)
@@ -1008,7 +1028,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
               <option value="all">전체 상태</option>
               <option value="PASS">PASS</option>
               <option value="FAIL">FAIL</option>
-              <option value="POLICY">정책 확인 필요</option>
+              <option value="POLICY_REVIEW">정책 검토</option>
               <option value="UNTESTED">미실시</option>
             </select>
 
@@ -1051,7 +1071,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
           const childGroups = childGroupsByParentNumber[groupInfo.number] || []
           
           // Get children testcases belonging to this parent category group
-          const groupCases = testCases.filter(tc => tc.group_id === group.id)
+          const groupCases = projectTestCases.filter(tc => tc.group_id === group.id)
           const visibleCases = getVisibleCasesForGroup(group)
 
           const totalCount = groupCases.length
@@ -1200,7 +1220,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                   {childGroups.map((childGroup) => {
                     const isChildExpanded = !!expandedGroups[childGroup.id]
                     const childInfo = getNumberedGroupInfo(childGroup, groupTopIndex)
-                    const childCases = testCases.filter(tc => tc.group_id === childGroup.id)
+                    const childCases = projectTestCases.filter(tc => tc.group_id === childGroup.id)
                     const visibleChildCases = getVisibleCasesForGroup(childGroup)
                     const childTotalCount = childCases.length
                     const childPassCount = childCases.filter(c => c.status === 'PASS').length
@@ -1575,7 +1595,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                   type="button"
                   onClick={() => updateStatus(activeTestCase.id, 'PASS')}
                   className={`rounded-xl border px-3 py-2 text-center text-[11px] font-black transition cursor-pointer ${
-                    activeTestCase.status === 'PASS' && !activeTestCase.tags?.includes('정책 확인 필요')
+                    activeTestCase.status === 'PASS'
                       ? 'border-accent-green/40 bg-accent-green/10 text-accent-green'
                       : 'border-zinc-800 bg-[#11131c] text-zinc-400 hover:border-accent-green/30 hover:text-accent-green'
                   }`}
@@ -1586,7 +1606,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                   type="button"
                   onClick={() => setPendingFailTcId(activeTestCase.id)}
                   className={`rounded-xl border px-3 py-2 text-center text-[11px] font-black transition cursor-pointer ${
-                    activeTestCase.status === 'FAIL' && !activeTestCase.tags?.includes('정책 확인 필요')
+                    activeTestCase.status === 'FAIL'
                       ? 'border-accent-red/40 bg-accent-red/10 text-accent-red'
                       : 'border-zinc-800 bg-[#11131c] text-zinc-400 hover:border-accent-red/30 hover:text-accent-red'
                   }`}
@@ -1597,7 +1617,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                   type="button"
                   onClick={() => updateStatus(activeTestCase.id, 'UNTESTED')}
                   className={`rounded-xl border px-3 py-2 text-center text-[11px] font-black transition cursor-pointer ${
-                    activeTestCase.status === 'UNTESTED' && !activeTestCase.tags?.includes('정책 확인 필요')
+                    activeTestCase.status === 'UNTESTED'
                       ? 'border-zinc-600 bg-zinc-800/70 text-zinc-100'
                       : 'border-zinc-800 bg-[#11131c] text-zinc-400 hover:border-zinc-600 hover:text-zinc-200'
                   }`}
@@ -1608,30 +1628,14 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                   type="button"
                   onClick={() => updatePolicyStatus(activeTestCase.id)}
                   className={`rounded-xl border px-3 py-2 text-center text-[11px] font-black transition cursor-pointer ${
-                    activeTestCase.tags?.includes('정책 확인 필요')
+                    activeTestCase.status === 'POLICY_REVIEW'
                       ? 'border-purple-500/40 bg-purple-500/10 text-purple-400'
                       : 'border-zinc-800 bg-[#11131c] text-zinc-400 hover:border-purple-500/30 hover:text-purple-400'
                   }`}
                 >
-                  정책 확인 필요
+                  정책 검토
                 </button>
               </div>
-
-              {activeTestCase.tags?.includes('정책 확인 필요') && (
-                <div className="mt-2 space-y-1.5 bg-[#151821]/40 border border-purple-500/20 rounded-xl p-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-purple-400 font-bold">정책 확인 필요 내용 입력</span>
-                    <button type="button" onClick={() => handleSaveOpinion(activeTestCase.id, 'policy')} className="px-2 py-0.5 bg-purple-500 hover:bg-purple-600 text-white rounded text-[10px] font-bold cursor-pointer">저장</button>
-                  </div>
-                  <input
-                    type="text"
-                    value={opinionTextsState[activeTestCase.id]?.policy || ''}
-                    onChange={(e) => handleOpinionTextChange(activeTestCase.id, 'policy', e.target.value)}
-                    placeholder="정책 확인이 필요한 내용을 입력하세요..."
-                    className="w-full bg-[#11131c]/60 border border-zinc-800 rounded px-2.5 py-1 text-zinc-200 text-xs outline-none focus:border-purple-500/50"
-                  />
-                </div>
-              )}
             </div>
 
             <div className="mt-2 space-y-3 rounded-2xl border border-border-color bg-[#090A0D]/35 p-4 shadow-inner shadow-black/20">
@@ -1644,7 +1648,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                   activeComments.map((com, idx) => (
                     <div key={idx} className="rounded-xl border border-zinc-900 bg-[#11131c]/60 p-3 leading-relaxed">
                       <div className="flex items-center justify-between gap-2 text-[11px]">
-                        <span className="font-bold text-zinc-200">{com.author} <span className="text-zinc-500 font-medium">({com.role})</span></span>
+                        <span className="font-bold text-zinc-200">{com.author}</span>
                         <span className="font-mono text-zinc-600">{com.date}</span>
                       </div>
                       <p className="mt-1 text-zinc-400">{com.text}</p>
@@ -1772,7 +1776,7 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
               </button>
               <button
                 type="button"
-                onClick={() => updateFailType(pendingFailTcId, 'UX ISSUE')}
+                onClick={() => updateFailType(pendingFailTcId, 'UX_ISSUE')}
                 className="rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-xs font-black text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800 cursor-pointer"
               >
                 UX ISSUE
@@ -1806,8 +1810,8 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
               <div className="space-y-1">
                 <div className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">기능 분류 (Category Group)</div>
                 <div className="text-sm font-bold text-zinc-100">
-                  {categoryGroups.find(g => g.id === selectedAddGroupId)
-                    ? getFullGroupTitle(categoryGroups.find(g => g.id === selectedAddGroupId)!)
+                  {projectCategoryGroups.find(g => g.id === selectedAddGroupId)
+                    ? getFullGroupTitle(projectCategoryGroups.find(g => g.id === selectedAddGroupId)!)
                     : '기능 분류가 선택되지 않았습니다'}
                 </div>
               </div>
@@ -2209,10 +2213,10 @@ export default function TestCaseList({ projectId, categoryGroups, testCases: ini
                     onChange={(e) => setEditTcGroupId(e.target.value)}
                     className="w-full bg-[#090A0D] border border-border-color rounded-xl px-3 py-2.5 text-xs text-zinc-300 outline-none cursor-pointer focus:border-zinc-700"
                   >
-                    {categoryGroups.length === 0 ? (
+                    {projectCategoryGroups.length === 0 ? (
                       <option value="">(기능 분류를 먼저 생성해 주세요)</option>
                     ) : (
-                      categoryGroups.map(g => (
+                      projectCategoryGroups.map(g => (
                         <option key={g.id} value={g.id}>
                           {g.title.includes('|||') ? `${g.title.split('|||')[0]} [${g.title.split('|||')[1]}]` : g.title}
                         </option>
